@@ -85,57 +85,267 @@
 
   <script src="../shared/plasticityGame.js"></script>
   <script>
-    var config = null;
+    var config, difficultyLevel, nBack;
+    var totalTrials, interStimulusIntervalMs;
+    var sequence = [];
+    var currentTrialIndex = -1;
+    var isRunning = false;
+    var awaitingResponse = false;
+    var trialStartTime = null;
 
-    function initGame(initialConfig) {
-      config = initialConfig || {};
+    var numTrials = 0;
+    var numTargets = 0;
+    var numHits = 0;
+    var numMisses = 0;
+    var numFalseAlarms = 0;
+    var reactionTimes = [];
+
+    var startButtonAttached = false;
+    var trialTimerId = null;
+
+    function initGame(configObj) {
+      config = configObj || {};
       PlasticityGame.init(config);
 
+      difficultyLevel = config.difficultyLevel || 1;
+      if (difficultyLevel === 1) {
+        nBack = 1;
+        totalTrials = 20;
+        interStimulusIntervalMs = 2000;
+      } else if (difficultyLevel === 2) {
+        nBack = 2;
+        totalTrials = 25;
+        interStimulusIntervalMs = 2000;
+      } else {
+        nBack = 3;
+        totalTrials = 30;
+        interStimulusIntervalMs = 1800;
+      }
+
       var instructions = document.getElementById("instructions");
-      instructions.textContent = "Remember the item from N steps back in the sequence and respond when it repeats.";
+      instructions.textContent =
+        "Press MATCH whenever the current letter is the same as the one " +
+        nBack +
+        " positions back.";
 
       var status = document.getElementById("status");
-      status.textContent = "Difficulty " + (config.difficultyLevel || 1);
+      status.textContent = "N = " + nBack + " (" + nBack + "-back), " + totalTrials + " trials";
 
       document.getElementById("feedback").textContent = "";
+      resetState();
+
+      var startButton = document.getElementById("startButton");
+      startButton.textContent = "Start";
+      startButton.disabled = false;
+
+      if (!startButtonAttached) {
+        startButton.addEventListener("click", handleStartOrMatch);
+        startButtonAttached = true;
+      }
+    }
+
+    function resetState() {
+      sequence = [];
+      currentTrialIndex = -1;
+      isRunning = false;
+      awaitingResponse = false;
+      trialStartTime = null;
+      numTrials = 0;
+      numTargets = 0;
+      numHits = 0;
+      numMisses = 0;
+      numFalseAlarms = 0;
+      reactionTimes = [];
+
+      if (trialTimerId) {
+        clearTimeout(trialTimerId);
+        trialTimerId = null;
+      }
+    }
+
+    function randomLetter() {
+      var letters = ["A", "B", "C", "D", "E", "F", "G", "H"];
+      return letters[Math.floor(Math.random() * letters.length)];
+    }
+
+    function isTargetTrial(index) {
+      if (index < nBack) return false;
+      return sequence[index] === sequence[index - nBack];
+    }
+
+    function handleStartOrMatch() {
+      if (!isRunning) {
+        startGame();
+      } else {
+        handleMatchResponse();
+      }
     }
 
     function startGame() {
-      if (!config) {
-        initGame({
-          gameId: "n-back",
-          sessionId: "debug-session-" + Date.now(),
-          difficultyLevel: 1,
-          timeLimitMs: 600000,
-          variant: "prototype"
+      if (isRunning) return;
+      resetState();
+      isRunning = true;
+      document.getElementById("feedback").textContent = "";
+      var startButton = document.getElementById("startButton");
+      startButton.textContent = "MATCH";
+      startButton.disabled = false;
+
+      setTimeout(runNextTrial, 500);
+    }
+
+    function runNextTrial() {
+      currentTrialIndex += 1;
+
+      if (currentTrialIndex >= totalTrials) {
+        endGame();
+        return;
+      }
+
+      numTrials += 1;
+      var currentLetter = generateLetter();
+      renderStimulus(currentLetter);
+
+      awaitingResponse = true;
+      trialStartTime = performance.now();
+
+      trialTimerId = setTimeout(function () {
+        handleTrialTimeout(currentTrialIndex);
+      }, interStimulusIntervalMs);
+    }
+
+    function generateLetter() {
+      var letter;
+      if (currentTrialIndex < nBack) {
+        letter = randomLetter();
+      } else {
+        var makeTarget = Math.random() < 0.3;
+        if (makeTarget) {
+          letter = sequence[currentTrialIndex - nBack];
+        } else {
+          var avoid = sequence[currentTrialIndex - nBack];
+          do {
+            letter = randomLetter();
+          } while (letter === avoid);
+        }
+      }
+
+      sequence.push(letter);
+      return letter;
+    }
+
+    function renderStimulus(letter) {
+      var gameArea = document.getElementById("gameArea");
+      gameArea.innerHTML =
+        '<span style="font-size: 4rem; letter-spacing: 0.12em;">' +
+        letter +
+        "</span>";
+    }
+
+    function handleMatchResponse() {
+      if (!isRunning || !awaitingResponse) return;
+
+      awaitingResponse = false;
+      var rt = performance.now() - trialStartTime;
+      var target = isTargetTrial(currentTrialIndex);
+      var letter = sequence[currentTrialIndex];
+      var responseCorrect = false;
+
+      if (target) {
+        numHits += 1;
+        numTargets += 1;
+        reactionTimes.push(rt);
+        responseCorrect = true;
+        document.getElementById("feedback").textContent = "Hit!";
+      } else {
+        numFalseAlarms += 1;
+        document.getElementById("feedback").textContent = "False alarm";
+      }
+
+      PlasticityGame.logEvent({
+        type: "TRIAL",
+        trialIndex: currentTrialIndex,
+        nBack: nBack,
+        letter: letter,
+        isTarget: target,
+        responded: true,
+        responseCorrect: responseCorrect,
+        rtMs: Math.round(rt)
+      });
+    }
+
+    function handleTrialTimeout(trialIndex) {
+      if (!isRunning || trialIndex !== currentTrialIndex) return;
+
+      if (awaitingResponse) {
+        var target = isTargetTrial(trialIndex);
+        var letter = sequence[trialIndex];
+        var responseCorrect = !target;
+
+        if (target) {
+          numMisses += 1;
+          numTargets += 1;
+          document.getElementById("feedback").textContent = "Miss";
+        }
+
+        awaitingResponse = false;
+
+        PlasticityGame.logEvent({
+          type: "TRIAL",
+          trialIndex: trialIndex,
+          nBack: nBack,
+          letter: letter,
+          isTarget: target,
+          responded: false,
+          responseCorrect: responseCorrect,
+          rtMs: null
         });
       }
 
-      document.getElementById("placeholderText").textContent =
-        "Game logic for N-Back will run here. (To be implemented.)";
-
-      // Example: send a dummy event and end result so the plumbing can be tested.
-      PlasticityGame.logEvent({
-        type: "INFO",
-        message: "Dummy trial event from n-back"
-      });
-
-      setTimeout(function () {
-        PlasticityGame.end({
-          score: 500,
-          accuracy: 0.8,
-          numTrials: 10,
-          numErrors: 2,
-          avgReactionTimeMs: 450,
-          maxDifficultyReached: (config && config.difficultyLevel) || 1,
-          completed: true
-        });
-        document.getElementById("feedback").textContent =
-          "Dummy result sent for N-Back. Check your shell / console.";
-      }, 1000);
+      runNextTrial();
     }
 
-    document.getElementById("startButton").addEventListener("click", startGame);
+    function endGame() {
+      isRunning = false;
+      awaitingResponse = false;
+
+      var hitRate = numTargets > 0 ? numHits / numTargets : 0;
+      var falseAlarmRate = numTrials > 0 ? numFalseAlarms / numTrials : 0;
+      var avgRT = reactionTimes.length > 0
+        ? reactionTimes.reduce(function (sum, v) { return sum + v; }, 0) / reactionTimes.length
+        : null;
+
+      var baseScore = hitRate - falseAlarmRate * 0.5;
+      baseScore = Math.max(0, Math.min(1, baseScore));
+      var score = Math.round(baseScore * 1000);
+
+      var feedback = "Hits: " + numHits +
+        ", Misses: " + numMisses +
+        ", False alarms: " + numFalseAlarms +
+        ", Hit rate: " + Math.round(hitRate * 100) + "%";
+
+      if (avgRT !== null) {
+        feedback += ", Avg RT: " + Math.round(avgRT) + "ms";
+      }
+
+      document.getElementById("feedback").textContent = feedback;
+
+      var startButton = document.getElementById("startButton");
+      startButton.textContent = "Start";
+      startButton.disabled = false;
+
+      PlasticityGame.end({
+        score: score,
+        accuracy: hitRate,
+        numTrials: numTrials,
+        numTargets: numTargets,
+        numHits: numHits,
+        numMisses: numMisses,
+        numFalseAlarms: numFalseAlarms,
+        avgReactionTimeMs: avgRT,
+        nBack: nBack,
+        completed: true
+      });
+    }
 
     // Standalone debug: auto-init if not inside iframe/ReactNativeWebView
     window.addEventListener("load", function () {
