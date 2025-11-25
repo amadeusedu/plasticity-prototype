@@ -37,25 +37,32 @@ create index if not exists game_events_session_created_idx
 alter table public.game_sessions enable row level security;
 alter table public.game_events enable row level security;
 
+-- Drop existing policies if they exist so this script can be re-run safely
+drop policy if exists game_sessions_owner_select  on public.game_sessions;
+drop policy if exists game_sessions_owner_insert  on public.game_sessions;
+drop policy if exists game_sessions_owner_update  on public.game_sessions;
+drop policy if exists game_events_owner_select    on public.game_events;
+drop policy if exists game_events_owner_insert    on public.game_events;
+
 -- game_sessions: allow owner to select/insert/update
-create policy if not exists game_sessions_owner_select
+create policy game_sessions_owner_select
   on public.game_sessions
   for select
   using (user_id = auth.uid());
 
-create policy if not exists game_sessions_owner_insert
+create policy game_sessions_owner_insert
   on public.game_sessions
   for insert
   with check (user_id = auth.uid());
 
-create policy if not exists game_sessions_owner_update
+create policy game_sessions_owner_update
   on public.game_sessions
   for update
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
 
 -- game_events: allow select/insert when tied to the user's session
-create policy if not exists game_events_owner_select
+create policy game_events_owner_select
   on public.game_events
   for select
   using (exists (
@@ -64,7 +71,7 @@ create policy if not exists game_events_owner_select
       and s.user_id = auth.uid()
   ));
 
-create policy if not exists game_events_owner_insert
+create policy game_events_owner_insert
   on public.game_events
   for insert
   with check (exists (
