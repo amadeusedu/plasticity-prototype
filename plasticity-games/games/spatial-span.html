@@ -86,21 +86,137 @@
   <script src="../shared/plasticityGame.js"></script>
   <script>
     var config = null;
+    var difficultyLevel = 1;
+
+    var gridSize = 3;
+    var cells = [];
+
+    var baseSequenceLength = 0;
+    var maxTrials = 0;
+
+    var currentTrialIndex = -1;
+    var isRunning = false;
+    var isShowingSequence = false;
+    var isAwaitingRecall = false;
+
+    var currentSequence = [];
+    var recallInputs = [];
+    var sequenceStartTime = null;
+
+    var numTrials = 0;
+    var numCorrect = 0;
+    var numIncorrect = 0;
+    var maxSpanAchieved = 0;
+    var recallTimes = [];
+
+    var instructionsEl = document.getElementById("instructions");
+    var gameAreaEl = document.getElementById("gameArea");
+    var statusEl = document.getElementById("status");
+    var feedbackEl = document.getElementById("feedback");
+    var startButtonEl = document.getElementById("startButton");
+
+    function buildGridIfNeeded() {
+      if (cells.length > 0) return;
+
+      var placeholder = document.getElementById("placeholderText");
+      if (placeholder) {
+        placeholder.remove();
+      }
+
+      var grid = document.createElement("div");
+      grid.style.display = "grid";
+      grid.style.gridTemplateColumns = "repeat(" + gridSize + ", 1fr)";
+      grid.style.gridTemplateRows = "repeat(" + gridSize + ", 1fr)";
+      grid.style.gap = "8px";
+      grid.style.width = "100%";
+      grid.style.maxWidth = "240px";
+      grid.style.aspectRatio = "1 / 1";
+
+      for (var i = 0; i < gridSize * gridSize; i++) {
+        var cell = document.createElement("div");
+        cell.setAttribute("data-index", i);
+        cell.style.border = "1px solid rgba(148, 163, 184, 0.6)";
+        cell.style.borderRadius = "8px";
+        cell.style.background = "rgba(51, 65, 85, 0.4)";
+        cell.style.transition = "background 0.2s, transform 0.1s";
+        cell.style.width = "100%";
+        cell.style.height = "100%";
+        cell.style.boxSizing = "border-box";
+        cell.style.cursor = "pointer";
+
+        (function (index) {
+          cell.addEventListener("click", function () {
+            handleCellClick(index);
+          });
+        })(i);
+
+        cells.push(cell);
+        grid.appendChild(cell);
+      }
+
+      gameAreaEl.innerHTML = "";
+      gameAreaEl.appendChild(grid);
+    }
 
     function initGame(initialConfig) {
       config = initialConfig || {};
       PlasticityGame.init(config);
 
-      var instructions = document.getElementById("instructions");
-      instructions.textContent = "Remember and reproduce sequences of spatial locations.";
+      difficultyLevel = config.difficultyLevel || 1;
 
-      var status = document.getElementById("status");
-      status.textContent = "Difficulty " + (config.difficultyLevel || 1);
+      if (difficultyLevel === 1) {
+        baseSequenceLength = 3;
+        maxTrials = 8;
+      } else if (difficultyLevel === 2) {
+        baseSequenceLength = 4;
+        maxTrials = 8;
+      } else {
+        baseSequenceLength = 5;
+        maxTrials = 8;
+      }
 
-      document.getElementById("feedback").textContent = "";
+      currentTrialIndex = -1;
+      isRunning = false;
+      isShowingSequence = false;
+      isAwaitingRecall = false;
+      currentSequence = [];
+      recallInputs = [];
+      sequenceStartTime = null;
+      numTrials = 0;
+      numCorrect = 0;
+      numIncorrect = 0;
+      maxSpanAchieved = 0;
+      recallTimes = [];
+
+      buildGridIfNeeded();
+
+      instructionsEl.textContent = "Watch the squares light up, then tap them in the same order.";
+      statusEl.textContent = "Difficulty " + difficultyLevel + " · Up to " + maxTrials + " sequences";
+      feedbackEl.textContent = "";
+      startButtonEl.textContent = "Start";
+      startButtonEl.disabled = false;
+    }
+
+    function randomCellIndex() {
+      return Math.floor(Math.random() * (gridSize * gridSize));
+    }
+
+    function highlightCell(index) {
+      var cell = cells[index];
+      if (!cell) return;
+      cell.style.background = "rgba(94, 234, 212, 0.9)";
+      cell.style.transform = "scale(1.03)";
+    }
+
+    function clearHighlight(index) {
+      var cell = cells[index];
+      if (!cell) return;
+      cell.style.background = "rgba(51, 65, 85, 0.4)";
+      cell.style.transform = "scale(1)";
     }
 
     function startGame() {
+      if (isRunning) return;
       if (!config) {
         initGame({
           gameId: "spatial-span",
@@ -111,33 +227,183 @@
         });
       }
 
-      document.getElementById("placeholderText").textContent =
-        "Game logic for Spatial Span will run here. (To be implemented.)";
+      currentTrialIndex = -1;
+      isRunning = true;
+      isShowingSequence = false;
+      isAwaitingRecall = false;
+      numTrials = 0;
+      numCorrect = 0;
+      numIncorrect = 0;
+      maxSpanAchieved = 0;
+      recallTimes = [];
+      feedbackEl.textContent = "";
+      startButtonEl.textContent = "Watch...";
+      startButtonEl.disabled = true;
 
-      // Example: send a dummy event and end result so the plumbing can be tested.
-      PlasticityGame.logEvent({
-        type: "INFO",
-        message: "Dummy trial event from spatial-span"
+      setTimeout(function () {
+        runNextTrial();
+      }, 600);
+    }
+
+    function runNextTrial() {
+      currentTrialIndex += 1;
+
+      if (currentTrialIndex >= maxTrials) {
+        endGame();
+        return;
+      }
+
+      numTrials += 1;
+
+      var span = baseSequenceLength + Math.floor(currentTrialIndex / 2);
+      var maxExtra = 3;
+      var maxSpan = baseSequenceLength + maxExtra;
+      if (span > maxSpan) span = maxSpan;
+
+      currentSequence = [];
+      for (var i = 0; i < span; i++) {
+        currentSequence.push(randomCellIndex());
+      }
+
+      isShowingSequence = true;
+      isAwaitingRecall = false;
+      recallInputs = [];
+      sequenceStartTime = null;
+
+      statusEl.textContent = "Sequence " + (currentTrialIndex + 1) + " / " + maxTrials + " · Length " + span;
+      feedbackEl.textContent = "Watch the sequence...";
+
+      playSequence(currentSequence, function () {
+        isShowingSequence = false;
+        isAwaitingRecall = true;
+        startButtonEl.textContent = "Repeat the sequence";
+        startButtonEl.disabled = true;
+        sequenceStartTime = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+        feedbackEl.textContent = "Now tap the squares in order.";
+      });
+    }
+
+    function playSequence(sequence, callback) {
+      var delay = 0;
+      var highlightDuration = 500;
+      var gapDuration = 300;
+
+      sequence.forEach(function (index, idx) {
+        setTimeout(function () {
+          highlightCell(index);
+        }, delay);
+
+        setTimeout(function () {
+          clearHighlight(index);
+        }, delay + highlightDuration);
+
+        delay += highlightDuration + gapDuration;
       });
 
       setTimeout(function () {
-        PlasticityGame.end({
-          score: 500,
-          accuracy: 0.8,
-          numTrials: 10,
-          numErrors: 2,
-          avgReactionTimeMs: 450,
-          maxDifficultyReached: (config && config.difficultyLevel) || 1,
-          completed: true
-        });
-        document.getElementById("feedback").textContent =
-          "Dummy result sent for Spatial Span. Check your shell / console.";
-      }, 1000);
+        if (typeof callback === "function") {
+          callback();
+        }
+      }, delay);
     }
 
-    document.getElementById("startButton").addEventListener("click", startGame);
+    function handleCellClick(index) {
+      if (!isRunning || !isAwaitingRecall) return;
 
-    // Standalone debug: auto-init if not inside iframe/ReactNativeWebView
+      var cell = cells[index];
+      if (cell) {
+        highlightCell(index);
+        setTimeout(function () {
+          clearHighlight(index);
+        }, 150);
+      }
+
+      recallInputs.push(index);
+
+      if (recallInputs.length === currentSequence.length) {
+        isAwaitingRecall = false;
+        var now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+        var recallDurationMs = sequenceStartTime ? (now - sequenceStartTime) : null;
+        if (recallDurationMs !== null) {
+          recallTimes.push(recallDurationMs);
+        }
+
+        var correct = true;
+        for (var i = 0; i < currentSequence.length; i++) {
+          if (currentSequence[i] !== recallInputs[i]) {
+            correct = false;
+            break;
+          }
+        }
+
+        if (correct) {
+          numCorrect += 1;
+          if (currentSequence.length > maxSpanAchieved) {
+            maxSpanAchieved = currentSequence.length;
+          }
+          feedbackEl.textContent = "Correct!";
+        } else {
+          numIncorrect += 1;
+          feedbackEl.textContent = "Incorrect sequence.";
+        }
+
+        PlasticityGame.logEvent({
+          type: "TRIAL",
+          trialIndex: currentTrialIndex,
+          span: currentSequence.length,
+          sequence: currentSequence.slice(),
+          recall: recallInputs.slice(),
+          correct: correct,
+          recallDurationMs: recallDurationMs,
+          timestampRecallStart: sequenceStartTime,
+          timestampRecallEnd: now
+        });
+
+        setTimeout(function () {
+          runNextTrial();
+        }, 600);
+      }
+    }
+
+    function endGame() {
+      isRunning = false;
+      isShowingSequence = false;
+      isAwaitingRecall = false;
+      startButtonEl.textContent = "Start";
+      startButtonEl.disabled = false;
+
+      var numTrialsAttempted = numTrials;
+      var numErrors = numIncorrect;
+      var accuracy = numTrialsAttempted > 0 ? numCorrect / numTrialsAttempted : 0;
+      var avgRecallTime = recallTimes.length > 0
+        ? recallTimes.reduce(function (a, b) { return a + b; }, 0) / recallTimes.length
+        : null;
+      var score = Math.round(accuracy * 1000 + maxSpanAchieved * 50);
+
+      feedbackEl.textContent =
+        "Sequences correct " + numCorrect + " / " + numTrialsAttempted +
+        ", Max span " + maxSpanAchieved +
+        ", Accuracy " + Math.round(accuracy * 100) + "%" +
+        (avgRecallTime !== null ? ", Avg recall " + Math.round(avgRecallTime) + " ms" : "");
+
+      PlasticityGame.end({
+        score: score,
+        accuracy: accuracy,
+        numTrials: numTrialsAttempted,
+        numCorrect: numCorrect,
+        numIncorrect: numIncorrect,
+        maxSpanAchieved: maxSpanAchieved,
+        avgReactionTimeMs: avgRecallTime,
+        completed: true
+      });
+    }
+
+    startButtonEl.addEventListener("click", function () {
+      if (!isRunning) {
+        startGame();
+      }
+    });
+
     window.addEventListener("load", function () {
       if (!window.ReactNativeWebView && window.parent === window) {
         initGame({
@@ -147,10 +413,10 @@
           timeLimitMs: 600000,
           variant: "prototype"
         });
+        // startGame(); // Uncomment to auto-start in standalone debug
       }
     });
 
-    // Support INIT_CONFIG via postMessage from parent harness
     window.addEventListener("message", function (event) {
       if (!event || !event.data) return;
       if (event.data.type === "INIT_CONFIG" && event.data.config) {
