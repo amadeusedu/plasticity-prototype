@@ -1,0 +1,5 @@
+-- Supabase schema placeholder for Plasticity
+-- Paste the SQL generated from your Codex prompt here to create:
+-- - game_sessions
+-- - game_events
+-- - RLS policies

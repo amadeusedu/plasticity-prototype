@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pattern Completion</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #050509;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 480px;
+      padding: 24px;
+      box-sizing: border-box;
+      border-radius: 16px;
+      background: radial-gradient(circle at top, #0b1120, #020617);
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.8);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.4rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #e5e7eb;
+    }
+    #instructions {
+      font-size: 0.9rem;
+      opacity: 0.8;
+      margin-bottom: 16px;
+    }
+    #gameArea {
+      min-height: 160px;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    #status {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      opacity: 0.75;
+    }
+    #feedback {
+      margin-top: 6px;
+      font-size: 0.85rem;
+    }
+    button.primary {
+      margin-top: 12px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.9rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      background: linear-gradient(135deg, #38bdf8, #a855f7);
+      color: white;
+      box-shadow: 0 10px 30px rgba(56, 189, 248, 0.35);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Pattern Completion</h1>
+    <div id="instructions"></div>
+    <div id="gameArea">
+      <span id="placeholderText">Game area for Pattern Completion.</span>
+    </div>
+    <button id="startButton" class="primary">Start</button>
+    <div id="status"></div>
+    <div id="feedback"></div>
+  </div>
+
+  <script src="../shared/plasticityGame.js"></script>
+  <script>
+    var config = null;
+
+    function initGame(initialConfig) {
+      config = initialConfig || {};
+      PlasticityGame.init(config);
+
+      var instructions = document.getElementById("instructions");
+      instructions.textContent = "Identify the missing element that best completes the pattern.";
+
+      var status = document.getElementById("status");
+      status.textContent = "Difficulty " + (config.difficultyLevel || 1);
+
+      document.getElementById("feedback").textContent = "";
+    }
+
+    function startGame() {
+      if (!config) {
+        initGame({
+          gameId: "pattern-completion",
+          sessionId: "debug-session-" + Date.now(),
+          difficultyLevel: 1,
+          timeLimitMs: 600000,
+          variant: "prototype"
+        });
+      }
+
+      document.getElementById("placeholderText").textContent =
+        "Game logic for Pattern Completion will run here. (To be implemented.)";
+
+      // Example: send a dummy event and end result so the plumbing can be tested.
+      PlasticityGame.logEvent({
+        type: "INFO",
+        message: "Dummy trial event from pattern-completion"
+      });
+
+      setTimeout(function () {
+        PlasticityGame.end({
+          score: 500,
+          accuracy: 0.8,
+          numTrials: 10,
+          numErrors: 2,
+          avgReactionTimeMs: 450,
+          maxDifficultyReached: (config && config.difficultyLevel) || 1,
+          completed: true
+        });
+        document.getElementById("feedback").textContent =
+          "Dummy result sent for Pattern Completion. Check your shell / console.";
+      }, 1000);
+    }
+
+    document.getElementById("startButton").addEventListener("click", startGame);
+
+    // Standalone debug: auto-init if not inside iframe/ReactNativeWebView
+    window.addEventListener("load", function () {
+      if (!window.ReactNativeWebView && window.parent === window) {
+        initGame({
+          gameId: "pattern-completion",
+          sessionId: "debug-session-" + Date.now(),
+          difficultyLevel: 1,
+          timeLimitMs: 600000,
+          variant: "prototype"
+        });
+      }
+    });
+
+    // Support INIT_CONFIG via postMessage from parent harness
+    window.addEventListener("message", function (event) {
+      if (!event || !event.data) return;
+      if (event.data.type === "INIT_CONFIG" && event.data.config) {
+        initGame(event.data.config);
+      }
+    });
+  </script>
+</body>
+</html>

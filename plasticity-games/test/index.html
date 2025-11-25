@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Plasticity Games Test Harness</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #020617;
+      color: #e5e7eb;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    select, input, button {
+      margin: 4px 0;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid #4b5563;
+      background: #020617;
+      color: #e5e7eb;
+    }
+    button {
+      cursor: pointer;
+      background: linear-gradient(135deg, #38bdf8, #a855f7);
+      border: none;
+    }
+    #layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+    }
+    iframe {
+      width: 100%;
+      height: 480px;
+      border-radius: 12px;
+      border: 1px solid #4b5563;
+      background: #020617;
+    }
+    pre {
+      background: #020617;
+      border-radius: 8px;
+      padding: 8px;
+      font-size: 0.8rem;
+      overflow: auto;
+      border: 1px solid #4b5563;
+    }
+    label {
+      font-size: 0.85rem;
+      display: block;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Plasticity Games Test Harness</h1>
+  <p>Use this page to debug HTML games and verify postMessage &amp; PlasticityGame plumbing.</p>
+
+  <label>
+    Game:
+    <select id="gameSelect">
+      <option value="n-back">N-Back</option>
+      <option value="go-no-go">Go / No-Go</option>
+      <option value="spatial-span">Spatial Span</option>
+      <option value="sequence-span">Sequence Span</option>
+      <option value="colour-word-conflict">Colour-Word Conflict</option>
+      <option value="flanker-arrows">Flanker Arrows</option>
+      <option value="simple-reaction">Simple Reaction</option>
+      <option value="choice-reaction">Choice Reaction</option>
+      <option value="symbol-match-coding">Symbol Match Coding</option>
+      <option value="rule-switch-cards">Rule Switch Cards</option>
+      <option value="task-switching-taps">Task Switching Taps</option>
+      <option value="pattern-completion">Pattern Completion</option>
+      <option value="mental-rotation-grid">Mental Rotation Grid</option>
+      <option value="multiple-object-tracking">Multiple Object Tracking</option>
+      <option value="spatial-memory-grid">Spatial Memory Grid</option>
+    </select>
+  </label>
+
+  <label>
+    Difficulty level:
+    <input id="difficultyInput" type="number" min="1" max="3" value="1" />
+  </label>
+
+  <label>
+    Session id (optional, leave blank for auto): 
+    <input id="sessionIdInput" type="text" placeholder="debug-session-..." />
+  </label>
+
+  <button id="launchButton">Launch Game</button>
+
+  <div id="layout">
+    <div>
+      <h2>Game Frame</h2>
+      <iframe id="gameFrame"></iframe>
+    </div>
+    <div>
+      <h2>Messages</h2>
+      <pre id="logOutput">{ }</pre>
+    </div>
+  </div>
+
+  <script>
+    var gameSelect = document.getElementById("gameSelect");
+    var difficultyInput = document.getElementById("difficultyInput");
+    var sessionIdInput = document.getElementById("sessionIdInput");
+    var launchButton = document.getElementById("launchButton");
+    var gameFrame = document.getElementById("gameFrame");
+    var logOutput = document.getElementById("logOutput");
+
+    function logMessage(obj) {
+      logOutput.textContent = JSON.stringify(obj, null, 2);
+    }
+
+    function gamePathFromId(id) {
+      return "../games/" + id + ".html";
+    }
+
+    launchButton.addEventListener("click", function () {
+      var gameId = gameSelect.value;
+      var difficultyLevel = parseInt(difficultyInput.value || "1", 10);
+      if (!difficultyLevel || difficultyLevel < 1) difficultyLevel = 1;
+
+      var sessionId = sessionIdInput.value.trim();
+      if (!sessionId) {
+        sessionId = "debug-session-" + Date.now();
+      }
+
+      var config = {
+        gameId: gameId,
+        sessionId: sessionId,
+        difficultyLevel: difficultyLevel,
+        timeLimitMs: 600000,
+        variant: "prototype"
+      };
+
+      // Load iframe
+      gameFrame.src = gamePathFromId(gameId);
+
+      gameFrame.onload = function () {
+        try {
+          gameFrame.contentWindow.postMessage(
+            { type: "INIT_CONFIG", config: config },
+            "*"
+          );
+        } catch (e) {
+          console.error("Error posting INIT_CONFIG", e);
+        }
+      };
+
+      logMessage({ info: "Launched game", gameId: gameId, config: config });
+    });
+
+    window.addEventListener("message", function (event) {
+      if (!event || !event.data) return;
+      var data = event.data;
+
+      if (data.type === "GAME_EVENT_DEBUG") {
+        logMessage({ from: "GAME_EVENT_DEBUG", payload: data.payload });
+      } else if (data.type === "GAME_RESULT") {
+        logMessage({ from: "GAME_RESULT", payload: data });
+      }
+    });
+  </script>
+</body>
+</html>
