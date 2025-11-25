@@ -86,75 +86,293 @@
   <script src="../shared/plasticityGame.js"></script>
   <script>
     var config = null;
+    var difficultyLevel = 1;
+    var totalTrials = 0;
+    var goProbability = 0.7;
+    var interStimulusIntervalMs = 0;
+    var responseWindowMs = 0;
+
+    var currentTrialIndex = -1;
+    var isRunning = false;
+    var awaitingResponse = false;
+    var trialStartTime = null;
+
+    var numTrials = 0;
+    var numGoTrials = 0;
+    var numNoGoTrials = 0;
+    var numHits = 0;
+    var numMisses = 0;
+    var numFalseAlarms = 0;
+    var numCorrectRejections = 0;
+    var rtHits = [];
+
+    var currentIsGo = false;
+    var currentStimulusTimeout = null;
+    var responseTimeout = null;
+
+    var instructionsEl = null;
+    var gameAreaEl = null;
+    var statusEl = null;
+    var feedbackEl = null;
+    var startButtonEl = null;
 
     function initGame(initialConfig) {
       config = initialConfig || {};
       PlasticityGame.init(config);
 
-      var instructions = document.getElementById("instructions");
-      instructions.textContent = "Respond quickly to Go stimuli and withhold your response to No-Go stimuli.";
+      instructionsEl = document.getElementById("instructions");
+      gameAreaEl = document.getElementById("gameArea");
+      statusEl = document.getElementById("status");
+      feedbackEl = document.getElementById("feedback");
+      startButtonEl = document.getElementById("startButton");
 
-      var status = document.getElementById("status");
-      status.textContent = "Difficulty " + (config.difficultyLevel || 1);
+      difficultyLevel = config.difficultyLevel || 1;
 
-      document.getElementById("feedback").textContent = "";
+      if (difficultyLevel === 1) {
+        totalTrials = 30;
+        goProbability = 0.7;
+        interStimulusIntervalMs = 2000;
+        responseWindowMs = 1400;
+      } else if (difficultyLevel === 2) {
+        totalTrials = 35;
+        goProbability = 0.65;
+        interStimulusIntervalMs = 1800;
+        responseWindowMs = 1200;
+      } else {
+        totalTrials = 40;
+        goProbability = 0.6;
+        interStimulusIntervalMs = 1600;
+        responseWindowMs = 1000;
+      }
+
+      currentTrialIndex = -1;
+      isRunning = false;
+      awaitingResponse = false;
+      numTrials = 0;
+      numGoTrials = 0;
+      numNoGoTrials = 0;
+      numHits = 0;
+      numMisses = 0;
+      numFalseAlarms = 0;
+      numCorrectRejections = 0;
+      rtHits = [];
+
+      instructionsEl.textContent = "Tap when you see GO (green). Do nothing on STOP (red).";
+      statusEl.textContent = "Difficulty " + difficultyLevel + " · Trials " + totalTrials;
+      feedbackEl.textContent = "";
+      startButtonEl.textContent = "Start";
+      startButtonEl.disabled = false;
+
+      startButtonEl.onclick = handleStartButton;
+    }
+
+    function handleStartButton() {
+      if (!isRunning) {
+        startGame();
+        return;
+      }
+
+      if (!awaitingResponse) {
+        return;
+      }
+
+      var now = performance.now ? performance.now() : Date.now();
+      var rtMs = now - trialStartTime;
+      awaitingResponse = false;
+
+      var responded = true;
+      var responseCorrect = false;
+      var responseLabel = "";
+
+      if (currentIsGo) {
+        numHits++;
+        responseCorrect = true;
+        responseLabel = "Hit!";
+        rtHits.push(rtMs);
+      } else {
+        numFalseAlarms++;
+        responseCorrect = false;
+        responseLabel = "False alarm";
+      }
+
+      feedbackEl.textContent = responseLabel;
+
+      PlasticityGame.logEvent({
+        type: "TRIAL",
+        trialIndex: currentTrialIndex,
+        isGo: currentIsGo,
+        responded: responded,
+        responseCorrect: responseCorrect,
+        rtMs: rtMs,
+        timestampStimulusOnset: trialStartTime,
+        timestampResponse: now
+      });
+    }
+
+    function showStimulus(isGo) {
+      currentIsGo = isGo;
+      if (isGo) {
+        gameAreaEl.innerHTML = '<div style="font-size:72px; color:#22c55e;">GO</div>';
+      } else {
+        gameAreaEl.innerHTML = '<div style="font-size:72px; color:#ef4444;">STOP</div>';
+      }
+      statusEl.textContent = "Trial " + (currentTrialIndex + 1) + " / " + totalTrials + " · Difficulty " + difficultyLevel;
     }
 
     function startGame() {
-      if (!config) {
-        initGame({
-          gameId: "go-no-go",
-          sessionId: "debug-session-" + Date.now(),
-          difficultyLevel: 1,
-          timeLimitMs: 600000,
-          variant: "prototype"
-        });
+      if (isRunning) return;
+
+      currentTrialIndex = -1;
+      awaitingResponse = false;
+      numTrials = 0;
+      numGoTrials = 0;
+      numNoGoTrials = 0;
+      numHits = 0;
+      numMisses = 0;
+      numFalseAlarms = 0;
+      numCorrectRejections = 0;
+      rtHits = [];
+
+      isRunning = true;
+      feedbackEl.textContent = "";
+      startButtonEl.textContent = "GO!";
+
+      if (currentStimulusTimeout) {
+        clearTimeout(currentStimulusTimeout);
+      }
+      if (responseTimeout) {
+        clearTimeout(responseTimeout);
       }
 
-      document.getElementById("placeholderText").textContent =
-        "Game logic for Go / No-Go will run here. (To be implemented.)";
-
-      // Example: send a dummy event and end result so the plumbing can be tested.
-      PlasticityGame.logEvent({
-        type: "INFO",
-        message: "Dummy trial event from go-no-go"
-      });
-
-      setTimeout(function () {
-        PlasticityGame.end({
-          score: 500,
-          accuracy: 0.8,
-          numTrials: 10,
-          numErrors: 2,
-          avgReactionTimeMs: 450,
-          maxDifficultyReached: (config && config.difficultyLevel) || 1,
-          completed: true
-        });
-        document.getElementById("feedback").textContent =
-          "Dummy result sent for Go / No-Go. Check your shell / console.";
-      }, 1000);
+      currentStimulusTimeout = setTimeout(function () {
+        runNextTrial();
+      }, 500);
     }
 
-    document.getElementById("startButton").addEventListener("click", startGame);
+    function runNextTrial() {
+      currentTrialIndex++;
 
-    // Standalone debug: auto-init if not inside iframe/ReactNativeWebView
+      if (currentTrialIndex >= totalTrials) {
+        endGame();
+        return;
+      }
+
+      numTrials++;
+
+      if (Math.random() < goProbability) {
+        currentIsGo = true;
+        numGoTrials++;
+      } else {
+        currentIsGo = false;
+        numNoGoTrials++;
+      }
+
+      showStimulus(currentIsGo);
+      awaitingResponse = true;
+      trialStartTime = performance.now ? performance.now() : Date.now();
+
+      if (responseTimeout) {
+        clearTimeout(responseTimeout);
+      }
+      responseTimeout = setTimeout(function () {
+        if (!awaitingResponse) {
+          return;
+        }
+        awaitingResponse = false;
+        var responded = false;
+        var responseCorrect = !currentIsGo;
+
+        if (currentIsGo) {
+          numMisses++;
+          feedbackEl.textContent = "Miss";
+        } else {
+          numCorrectRejections++;
+          feedbackEl.textContent = "Correct rejection";
+        }
+
+        PlasticityGame.logEvent({
+          type: "TRIAL",
+          trialIndex: currentTrialIndex,
+          isGo: currentIsGo,
+          responded: responded,
+          responseCorrect: responseCorrect,
+          rtMs: null,
+          timestampStimulusOnset: trialStartTime,
+          timestampResponse: null
+        });
+      }, responseWindowMs);
+
+      if (currentStimulusTimeout) {
+        clearTimeout(currentStimulusTimeout);
+      }
+      currentStimulusTimeout = setTimeout(function () {
+        runNextTrial();
+      }, interStimulusIntervalMs);
+    }
+
+    function endGame() {
+      isRunning = false;
+      awaitingResponse = false;
+
+      if (currentStimulusTimeout) {
+        clearTimeout(currentStimulusTimeout);
+      }
+      if (responseTimeout) {
+        clearTimeout(responseTimeout);
+      }
+
+      var numErrors = numMisses + numFalseAlarms;
+      var hitRate = numGoTrials > 0 ? numHits / numGoTrials : 0;
+      var falseAlarmRate = numNoGoTrials > 0 ? numFalseAlarms / numNoGoTrials : 0;
+      var accuracy = numTrials > 0 ? (numHits + numCorrectRejections) / numTrials : 0;
+      var avgRt = rtHits.length > 0 ? rtHits.reduce(function (a, b) { return a + b; }, 0) / rtHits.length : null;
+      var score = Math.round(accuracy * 1000);
+
+      var summaryLines = [];
+      summaryLines.push("Session complete.");
+      summaryLines.push("Hits: " + numHits + " · Misses: " + numMisses + " · False alarms: " + numFalseAlarms);
+      summaryLines.push("Accuracy: " + Math.round(accuracy * 100) + "%");
+      if (avgRt !== null) {
+        summaryLines.push("Avg RT: " + Math.round(avgRt) + " ms");
+      }
+      feedbackEl.textContent = summaryLines.join(" \u00b7 ");
+      startButtonEl.textContent = "Start";
+
+      PlasticityGame.end({
+        score: score,
+        accuracy: accuracy,
+        numTrials: numTrials,
+        numGoTrials: numGoTrials,
+        numNoGoTrials: numNoGoTrials,
+        numHits: numHits,
+        numMisses: numMisses,
+        numFalseAlarms: numFalseAlarms,
+        numCorrectRejections: numCorrectRejections,
+        avgReactionTimeMs: avgRt,
+        hitRate: hitRate,
+        falseAlarmRate: falseAlarmRate,
+        numErrors: numErrors,
+        completed: true
+      });
+    }
+
+    window.addEventListener("message", function (event) {
+      if (!event || !event.data) return;
+      if (event.data.type === "INIT_CONFIG" && event.data.config) {
+        initGame(event.data.config);
+      }
+    });
+
     window.addEventListener("load", function () {
       if (!window.ReactNativeWebView && window.parent === window) {
         initGame({
           gameId: "go-no-go",
           sessionId: "debug-session-" + Date.now(),
           difficultyLevel: 1,
-          timeLimitMs: 600000,
+          timeLimitMs: 60000,
           variant: "prototype"
         });
-      }
-    });
-
-    // Support INIT_CONFIG via postMessage from parent harness
-    window.addEventListener("message", function (event) {
-      if (!event || !event.data) return;
-      if (event.data.type === "INIT_CONFIG" && event.data.config) {
-        initGame(event.data.config);
+        startGame();
       }
     });
   </script>
