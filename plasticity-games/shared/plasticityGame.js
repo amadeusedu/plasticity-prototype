@@ -29,6 +29,9 @@
 
     end: function (result) {
       result = result || {};
+      if (!this._config) {
+        console.warn("[PlasticityGame] config missing; using debug defaults");
+      }
       var message = {
         type: "GAME_RESULT",
         gameId: (this._config && this._config.gameId) || "unknown-game",
@@ -36,10 +39,17 @@
         result: result,
         events: this._events.slice()
       };
-      console.log("[PlasticityGame] end", message);
       try {
-        if (window.parent && window.parent !== window) {
+        if (
+          window.ReactNativeWebView &&
+          window.ReactNativeWebView.postMessage
+        ) {
+          window.ReactNativeWebView.postMessage(JSON.stringify(message));
+        } else if (window.parent && window.parent !== window) {
           window.parent.postMessage(message, "*");
+        } else {
+          window.__lastPlasticityResult = message;
+          console.log("[PlasticityGame] end", message);
         }
       } catch (e) {
         console.warn("PlasticityGame.end postMessage failed", e);
