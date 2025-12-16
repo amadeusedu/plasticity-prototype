@@ -1,9 +1,7 @@
 import { GameCategory, GamePlugin } from './types';
-import { dummyGridGame } from './plugins/dummyGrid';
+import { allV1Games } from './plugins/v1Games';
 
-const plugins: Record<string, GamePlugin> = {
-  [dummyGridGame.id]: dummyGridGame,
-};
+const plugins: Record<string, GamePlugin> = Object.fromEntries(allV1Games.map((game) => [game.id, game]));
 
 export function getGamePlugin(gameId: string): GamePlugin {
   const plugin = plugins[gameId];
