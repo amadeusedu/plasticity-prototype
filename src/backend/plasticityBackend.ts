@@ -3,24 +3,27 @@
  * High-level helper functions for saving Plasticity game data to Supabase.
  */
 
-import { supabase } from './supabaseClient';
+import { getSupabaseClient } from './supabaseClient';
+import { GameEventsRow, GameSessionsRow } from '../lib/supabase/types';
+
+type NullableNumber = number | null;
 
 export interface GameResult {
   gameId: string;
   sessionId: string;
-  score: number | null;
-  accuracy: number | null;
-  numTrials?: number | null;
-  numErrors?: number | null;
-  avgReactionTimeMs?: number | null;
-  maxDifficultyReached?: number | null;
+  score: NullableNumber;
+  accuracy: NullableNumber;
+  numTrials?: NullableNumber;
+  numErrors?: NullableNumber;
+  avgReactionTimeMs?: NullableNumber;
+  maxDifficultyReached?: NullableNumber;
   completed: boolean;
-  extra?: Record<string, any> | null;
+  extra?: Record<string, unknown> | null;
 }
 
 export interface GameEventPayload {
   type: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface GameResultMessage {
@@ -29,6 +32,16 @@ export interface GameResultMessage {
   gameId: string;
   result: GameResult;
   events?: GameEventPayload[];
+}
+
+function mapGameResultToUpdate(result: GameResult): Partial<GameSessionsRow> {
+  return {
+    score: result.score ?? null,
+    accuracy: result.accuracy ?? null,
+    completed: result.completed,
+    extra: result.extra ?? null,
+    finished_at: new Date().toISOString(),
+  };
 }
 
 /**
@@ -41,6 +54,7 @@ export async function createGameSession(params: {
   variant?: string | null;
 }): Promise<{ id: string }> {
   const { userId, gameId, difficultyLevel, variant = null } = params;
+  const supabase = getSupabaseClient();
 
   const { data, error } = await supabase
     .from('game_sessions')
@@ -65,21 +79,11 @@ export async function createGameSession(params: {
 /**
  * Complete a game session with the final result.
  */
-export async function completeGameSession(
-  sessionId: string,
-  result: GameResult
-): Promise<void> {
-  const { score, accuracy, completed, extra } = result;
-
+export async function completeGameSession(sessionId: string, result: GameResult): Promise<void> {
+  const supabase = getSupabaseClient();
   const { error } = await supabase
     .from('game_sessions')
-    .update({
-      score: score ?? null,
-      accuracy: accuracy ?? null,
-      completed,
-      extra: extra ?? null,
-      finished_at: new Date().toISOString(),
-    })
+    .update(mapGameResultToUpdate(result))
     .eq('id', sessionId);
 
   if (error) {
@@ -91,16 +95,14 @@ export async function completeGameSession(
 /**
  * Log a single game event (e.g., trial data) for a session.
  */
-export async function logGameEvent(
-  sessionId: string,
-  event: GameEventPayload
-): Promise<void> {
+export async function logGameEvent(sessionId: string, event: GameEventPayload): Promise<void> {
+  const supabase = getSupabaseClient();
   const { error } = await supabase
     .from('game_events')
     .insert({
       session_id: sessionId,
       event_type: event.type,
-      payload: event,
+      payload: event as GameEventsRow['payload'],
     });
 
   if (error) {
@@ -112,27 +114,14 @@ export async function logGameEvent(
 /**
  * Convenience function to save a GAME_RESULT-style message coming from an iframe.
  */
-export async function saveGameResultAndEventsFromMessage(
-  msg: GameResultMessage
-): Promise<void> {
+export async function saveGameResultAndEventsFromMessage(msg: GameResultMessage): Promise<void> {
   if (!msg || msg.type !== 'GAME_RESULT') {
     throw new Error('Invalid message type for saveGameResultAndEventsFromMessage');
   }
 
-  try {
-    await completeGameSession(msg.sessionId, msg.result);
+  await completeGameSession(msg.sessionId, msg.result);
 
-    if (msg.events && msg.events.length > 0) {
-      await Promise.all(msg.events.map((e) => logGameEvent(msg.sessionId, e)));
-    }
-  } catch (err: any) {
-    console.error(
-      'Error saving game result for',
-      msg.gameId,
-      'session',
-      msg.sessionId,
-      err
-    );
-    throw err;
+  if (msg.events && msg.events.length > 0) {
+    await Promise.all(msg.events.map((event) => logGameEvent(msg.sessionId, event)));
   }
 }
