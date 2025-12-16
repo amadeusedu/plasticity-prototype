@@ -4,9 +4,10 @@ import { resultsService, formatRlsHint } from '../../lib/results/ResultsService'
 import { useAppContext } from '../providers/AppProvider';
 
 export default function DevMenuScreen(): JSX.Element {
-  const { env, entitlements, envError, lastError, setLastError } = useAppContext();
+  const { env, entitlements, envError, lastError, setLastError, setEntitlementsOverride } = useAppContext();
   const [rlsStatus, setRlsStatus] = useState<string>('Not run');
   const [rlsRunning, setRlsRunning] = useState<boolean>(false);
+  const [premiumOverride, setPremiumOverride] = useState<'premium' | 'free' | 'reset'>('reset');
 
   const runRlsSelfTest = async (): Promise<void> => {
     setRlsRunning(true);
@@ -39,6 +40,37 @@ export default function DevMenuScreen(): JSX.Element {
         <Text style={styles.value}>Premium: {entitlements?.isPremium ? 'true' : 'false'}</Text>
         <Text style={styles.value}>Source: {entitlements?.source ?? 'unknown'}</Text>
         {entitlements?.reason ? <Text style={styles.value}>Reason: {entitlements.reason}</Text> : null}
+        <Pressable
+          accessibilityLabel="Force premium"
+          onPress={() => {
+            setPremiumOverride('premium');
+            setEntitlementsOverride(true);
+          }}
+          style={styles.button}
+        >
+          <Text style={styles.buttonLabel}>Force premium (dev)</Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="Force free"
+          onPress={() => {
+            setPremiumOverride('free');
+            setEntitlementsOverride(false);
+          }}
+          style={styles.button}
+        >
+          <Text style={styles.buttonLabel}>Force free (dev)</Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="Reset entitlements override"
+          onPress={() => {
+            setPremiumOverride('reset');
+            setEntitlementsOverride(null);
+          }}
+          style={styles.button}
+        >
+          <Text style={styles.buttonLabel}>Reset override</Text>
+        </Pressable>
+        <Text style={styles.value}>Override: {premiumOverride}</Text>
       </View>
 
       <View style={styles.section}>

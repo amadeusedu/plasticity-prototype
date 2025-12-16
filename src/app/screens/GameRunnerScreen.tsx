@@ -3,7 +3,7 @@ import { AppState, AppStateStatus, ScrollView, StyleSheet, Text, View } from 're
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { getGamePlugin } from '../../games/registry';
-import { GamePlugin } from '../../games/types';
+import { GamePlugin, SessionConfig } from '../../games/types';
 import { PrimaryButton } from '../../ui/PrimaryButton';
 import { colors, spacing, typography } from '../../ui/theme';
 import { Countdown } from '../../ui/Countdown';
@@ -13,6 +13,11 @@ import { SlideUp } from '../../ui/Motion';
 import { resultsService } from '../../lib/results/ResultsService';
 import { ResultSummary, StandardScore } from '../../lib/results/schema';
 import { summarizeScores } from '../../games/utils';
+import { recordSessionInsight } from '../../lib/premium/sessionInsights';
+import { recordAssessmentInsight } from '../../lib/premium/assessmentService';
+import { getDomainForGame } from '../../lib/premium/domainConfig';
+import { canStartSession, recordSessionCompletion } from '../../lib/premium/progressionService';
+import { useAppContext } from '../providers/AppProvider';
 
 interface SessionState {
   id: string;
@@ -20,19 +25,21 @@ interface SessionState {
   userId: string;
 }
 
-type Phase = 'tutorial' | 'countdown' | 'running' | 'summary';
+type Phase = 'tutorial' | 'countdown' | 'running' | 'summary' | 'blocked';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GameRunner'>;
 
 export default function GameRunnerScreen({ route, navigation }: Props): JSX.Element {
-  const { gameId, mode = 'normal' } = route.params;
+  const { entitlements } = useAppContext();
+  const { gameId, mode = 'normal', sessionOverride, runContext } = route.params;
   const plugin = useMemo<GamePlugin>(() => getGamePlugin(gameId), [gameId]);
+  const sessionConfig = (sessionOverride as SessionConfig) ?? plugin.session;
   const tutorialSteps = plugin.getTutorialSteps();
 
   const [phase, setPhase] = useState<Phase>(mode === 'tutorial' && tutorialSteps.length > 0 ? 'tutorial' : 'countdown');
   const [currentStep, setCurrentStep] = useState(0);
   const [session, setSession] = useState<SessionState | null>(null);
-  const [difficulty, setDifficulty] = useState(plugin.session.defaultDifficulty);
+  const [difficulty, setDifficulty] = useState(sessionConfig.defaultDifficulty);
   const [currentTrial, setCurrentTrial] = useState(0);
   const [trialData, setTrialData] = useState<Record<string, unknown> | null>(null);
   const [scores, setScores] = useState<StandardScore[]>([]);
@@ -42,10 +49,11 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
   const [isBackgrounded, setIsBackgrounded] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [blockedReason, setBlockedReason] = useState<string | null>(null);
 
-  const countdownSeconds = plugin.session.countdownSeconds ?? 3;
-  const isTimed = plugin.session.mode === 'timed';
-  const durationLimit = plugin.session.mode === 'timed' ? plugin.session.durationSeconds * 1000 : null;
+  const countdownSeconds = sessionConfig.countdownSeconds ?? 3;
+  const isTimed = sessionConfig.mode === 'timed';
+  const durationLimit = sessionConfig.mode === 'timed' ? sessionConfig.durationSeconds * 1000 : null;
 
   const sessionSeed = useRef<number>(Math.floor(Math.random() * 1000000));
   const trialStartedAt = useRef<number | null>(null);
@@ -80,13 +88,20 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
   }, [navigation, plugin.title]);
 
   useEffect(() => {
+    const allowance = canStartSession(entitlements?.isPremium ?? false);
+    if (!allowance.allowed && mode !== 'assessment') {
+      setBlockedReason(allowance.reason ?? 'Upgrade required');
+      setPhase('blocked');
+      return;
+    }
+
     const create = async () => {
       try {
         const created = await resultsService.createSession({
           gameId: plugin.id,
-          difficultyStart: plugin.session.defaultDifficulty,
+          difficultyStart: sessionConfig.defaultDifficulty,
           gameVersion: plugin.version,
-          metadata: { mode },
+          metadata: { mode, assessmentId: runContext?.assessmentId },
         });
         setSession(created);
         setElapsedMs(0);
@@ -96,7 +111,7 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
       }
     };
     void create();
-  }, [plugin.id, plugin.session.defaultDifficulty, plugin.version]);
+  }, [entitlements?.isPremium, mode, plugin.id, plugin.version, runContext?.assessmentId, sessionConfig.defaultDifficulty]);
 
   useEffect(() => {
     if (phase !== 'running' || isPaused || !isTimed) return;
@@ -159,9 +174,9 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
       const nextDifficulty = plugin.recommendNextDifficulty(nextScores.slice(-3), difficulty);
       setDifficulty(nextDifficulty);
 
-      const reachedTrialCap = plugin.session.mode === 'fixed' ? nextScores.length >= plugin.session.trials : false;
+      const reachedTrialCap = sessionConfig.mode === 'fixed' ? nextScores.length >= sessionConfig.trials : false;
       const reachedTimeCap = durationLimit ? elapsedMs >= durationLimit : false;
-      const reachedMaxTrials = plugin.session.mode === 'timed' && plugin.session.maxTrials ? nextScores.length >= plugin.session.maxTrials : false;
+      const reachedMaxTrials = sessionConfig.mode === 'timed' && sessionConfig.maxTrials ? nextScores.length >= sessionConfig.maxTrials : false;
 
       if (reachedTrialCap || reachedTimeCap || reachedMaxTrials) {
         await finalizeSession(nextScores, nextDifficulty);
@@ -178,6 +193,7 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
       const runtimeMs = Math.max(elapsedMs, Date.now() - new Date(session.startedAt).getTime());
       const computedSummary = plugin.buildSessionSummary(finalScores);
       setSummary(computedSummary);
+      const endedAt = new Date().toISOString();
       try {
         await resultsService.finalizeSession({
           sessionId: session.id,
@@ -185,14 +201,32 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
           summary: computedSummary,
           durationMs: runtimeMs,
           gameVersion: plugin.version,
+          endedAt,
         });
+        const insight = {
+          sessionId: session.id,
+          gameId: plugin.id,
+          summary: computedSummary,
+          durationMs: runtimeMs,
+          startedAt: session.startedAt,
+          endedAt,
+          mode,
+          context: runContext,
+          domain: getDomainForGame(plugin.id),
+        };
+        if (runContext?.assessmentId) {
+          recordAssessmentInsight(insight);
+        } else {
+          recordSessionInsight(insight);
+        }
+        recordSessionCompletion({ summary: computedSummary, durationMs: runtimeMs, domain: getDomainForGame(plugin.id), startedAt: session.startedAt });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to finalize';
         setLastError(message);
       }
       setPhase('summary');
     },
-    [difficulty, elapsedMs, plugin, scores, session]
+    [difficulty, elapsedMs, mode, plugin, runContext, scores, session]
   );
 
   const handlePauseToggle = useCallback(() => {
@@ -215,14 +249,14 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
   }, [finalizeSession]);
 
   const renderTopBar = () => {
-    const progress = plugin.session.mode === 'fixed'
-      ? Math.min(1, scores.length / plugin.session.trials)
+    const progress = sessionConfig.mode === 'fixed'
+      ? Math.min(1, scores.length / sessionConfig.trials)
       : durationLimit
         ? Math.min(1, elapsedMs / durationLimit)
         : 0;
 
-    const statusLabel = plugin.session.mode === 'fixed'
-      ? `Trial ${Math.min(scores.length + 1, plugin.session.trials)} / ${plugin.session.trials}`
+    const statusLabel = sessionConfig.mode === 'fixed'
+      ? `Trial ${Math.min(scores.length + 1, sessionConfig.trials)} / ${sessionConfig.trials}`
       : durationLimit
         ? `Time ${Math.max(0, Math.round((durationLimit - elapsedMs) / 1000))}s`
         : 'Timed';
@@ -283,7 +317,18 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
     </SlideUp>
   );
 
+  const renderBlocked = () => (
+    <SlideUp>
+      <View style={styles.card}>
+        <Text style={styles.title}>Session locked</Text>
+        <Text style={styles.body}>{blockedReason ?? 'Premium required for additional sessions today.'}</Text>
+        <PrimaryButton label="Back" onPress={() => navigation.popToTop()} />
+      </View>
+    </SlideUp>
+  );
+
   const renderBody = () => {
+    if (phase === 'blocked') return renderBlocked();
     if (!session && phase !== 'summary') {
       return (
         <View style={styles.card}>
