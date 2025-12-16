@@ -7,17 +7,34 @@ export const repoAuditSnapshot = {
   authFlow:
     'Supabase auth not wired in UI yet; backend helpers assume authenticated user_id is provided when creating sessions.',
   supabase: {
-    client: 'src/backend/supabaseClient.ts builds a singleton Supabase client using validated env variables.',
+    client: 'src/lib/supabase/client.ts builds a singleton Supabase client using validated env variables.',
     tables: {
       game_sessions: {
         required: ['id', 'user_id', 'game_id', 'started_at', 'completed'],
-        optional: ['difficulty_level', 'variant', 'finished_at', 'score', 'accuracy', 'extra'],
+        optional: [
+          'difficulty_level',
+          'difficulty_end',
+          'variant',
+          'finished_at',
+          'duration_ms',
+          'score',
+          'accuracy',
+          'summary',
+          'extra',
+          'app_version',
+          'game_version',
+          'metadata',
+        ],
       },
       game_events: {
         required: ['id', 'session_id', 'event_type', 'payload', 'created_at'],
       },
+      game_trials: {
+        required: ['id', 'session_id', 'trial_index', 'trial_data', 'score', 'created_at'],
+      },
     },
-    resultFlow: 'createGameSession, completeGameSession, and logGameEvent orchestrate writes to Supabase tables.',
+    resultFlow:
+      'resultsService.createSession/appendTrial/finalizeSession is the canonical pathway, with plasticityBackend shims calling into it.',
   },
   games: [
     {

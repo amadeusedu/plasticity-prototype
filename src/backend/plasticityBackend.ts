@@ -3,8 +3,10 @@
  * High-level helper functions for saving Plasticity game data to Supabase.
  */
 
-import { getSupabaseClient } from './supabaseClient';
-import { GameEventsRow, GameSessionsRow } from '../lib/supabase/types';
+import { resultsService } from '../lib/results/ResultsService';
+import { ResultSummary } from '../lib/results/schema';
+import { getSupabaseClient } from '../lib/supabase/client';
+import { GameEventsRow } from '../lib/supabase/types';
 
 type NullableNumber = number | null;
 
@@ -34,16 +36,6 @@ export interface GameResultMessage {
   events?: GameEventPayload[];
 }
 
-function mapGameResultToUpdate(result: GameResult): Partial<GameSessionsRow> {
-  return {
-    score: result.score ?? null,
-    accuracy: result.accuracy ?? null,
-    completed: result.completed,
-    extra: result.extra ?? null,
-    finished_at: new Date().toISOString(),
-  };
-}
-
 /**
  * Create a new game session row for a user and game.
  */
@@ -53,43 +45,33 @@ export async function createGameSession(params: {
   difficultyLevel: number;
   variant?: string | null;
 }): Promise<{ id: string }> {
-  const { userId, gameId, difficultyLevel, variant = null } = params;
-  const supabase = getSupabaseClient();
+  const { gameId, difficultyLevel, variant = null } = params;
+  const { id } = await resultsService.createSession({
+    gameId,
+    difficultyStart: difficultyLevel,
+    variant,
+    metadata: variant ? { variant } : null,
+  });
 
-  const { data, error } = await supabase
-    .from('game_sessions')
-    .insert({
-      user_id: userId,
-      game_id: gameId,
-      difficulty_level: difficultyLevel,
-      variant,
-      started_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
-
-  if (error || !data) {
-    console.error('createGameSession error', error);
-    throw new Error('Failed to create game session');
-  }
-
-  return { id: data.id as string };
+  return { id };
 }
 
 /**
  * Complete a game session with the final result.
  */
 export async function completeGameSession(sessionId: string, result: GameResult): Promise<void> {
-  const supabase = getSupabaseClient();
-  const { error } = await supabase
-    .from('game_sessions')
-    .update(mapGameResultToUpdate(result))
-    .eq('id', sessionId);
+  const summary: ResultSummary = {
+    accuracyAvg: result.accuracy ?? 0,
+    timeAvgMs: result.avgReactionTimeMs ?? 0,
+    errorsTotal: result.numErrors ?? 0,
+    scoreTotal: result.score ?? 0,
+  };
 
-  if (error) {
-    console.error('completeGameSession error', error);
-    throw new Error('Failed to complete game session');
-  }
+  await resultsService.finalizeSession({
+    sessionId,
+    difficultyEnd: result.maxDifficultyReached ?? null,
+    summary,
+  });
 }
 
 /**
