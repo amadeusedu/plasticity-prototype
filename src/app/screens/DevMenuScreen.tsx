@@ -1,9 +1,28 @@
-import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { resultsService, formatRlsHint } from '../../lib/results/ResultsService';
 import { useAppContext } from '../providers/AppProvider';
 
 export default function DevMenuScreen(): JSX.Element {
-  const { env, entitlements, envError, lastError } = useAppContext();
+  const { env, entitlements, envError, lastError, setLastError } = useAppContext();
+  const [rlsStatus, setRlsStatus] = useState<string>('Not run');
+  const [rlsRunning, setRlsRunning] = useState<boolean>(false);
+
+  const runRlsSelfTest = async (): Promise<void> => {
+    setRlsRunning(true);
+    setRlsStatus('Running...');
+    try {
+      const outcome = await resultsService.runSelfTest();
+      setRlsStatus(`OK (session ${outcome.sessionId})`);
+      setLastError(null);
+    } catch (error) {
+      const message = error instanceof Error ? formatRlsHint(error) : 'Unknown RLS error';
+      setLastError(message);
+      setRlsStatus('Failed');
+    } finally {
+      setRlsRunning(false);
+    }
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -25,6 +44,15 @@ export default function DevMenuScreen(): JSX.Element {
       <View style={styles.section}>
         <Text style={styles.title}>Errors</Text>
         <Text style={styles.value}>{lastError ?? 'No errors captured'}</Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.title}>RLS self-test</Text>
+        <Text style={styles.value}>Creates a session, saves a trial, finalizes, then reads back.</Text>
+        <Pressable accessibilityLabel="Run RLS self test" onPress={runRlsSelfTest} disabled={rlsRunning} style={styles.button}>
+          <Text style={styles.buttonLabel}>{rlsRunning ? 'Running...' : 'Run self test'}</Text>
+        </Pressable>
+        <Text style={styles.value}>Status: {rlsStatus}</Text>
       </View>
     </ScrollView>
   );
@@ -55,5 +83,16 @@ const styles = StyleSheet.create({
   warning: {
     color: '#fb923c',
     marginTop: 4,
+  },
+  button: {
+    marginTop: 8,
+    paddingVertical: 10,
+    backgroundColor: '#2563eb',
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  buttonLabel: {
+    color: '#fff',
+    fontWeight: '700',
   },
 });
