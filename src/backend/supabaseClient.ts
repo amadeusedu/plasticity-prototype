@@ -2,21 +2,25 @@
  * supabaseClient.ts
  * Single Supabase client instance for the Plasticity prototype.
  */
-import { createClient } from '@supabase/supabase-js';
+import { SupabaseClient, createClient } from '@supabase/supabase-js';
+import { getValidatedEnv } from '../lib/env';
+import { Database } from '../lib/supabase/types';
 
-const supabaseUrl =
-  import.meta.env.VITE_SUPABASE_URL ||
-  (typeof process !== 'undefined' ? process.env.EXPO_PUBLIC_SUPABASE_URL : undefined);
+let cachedClient: SupabaseClient<Database> | null = null;
+let clientError: Error | null = null;
 
-const supabaseAnonKey =
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  (typeof process !== 'undefined' ? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY : undefined);
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    'Supabase URL or anon key is missing. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (or Expo equivalents).'
-  );
+export function getSupabaseClient(): SupabaseClient<Database> {
+  if (cachedClient) return cachedClient;
+  try {
+    const env = getValidatedEnv();
+    cachedClient = createClient<Database>(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+    return cachedClient;
+  } catch (error) {
+    clientError = error as Error;
+    throw error;
+  }
 }
 
-// Using `any` for now; you can replace with generated types later.
-export const supabase = createClient(supabaseUrl as string, supabaseAnonKey as string);
+export function getSupabaseInitError(): Error | null {
+  return clientError;
+}

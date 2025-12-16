@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "PlasticityPrototype",
+    "slug": "plasticity-prototype",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"],
+    "assetBundlePatterns": ["**/*"],
+    "newArchEnabled": false
+  }
+}

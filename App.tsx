@@ -1,0 +1,26 @@
+import React from 'react';
+import { StatusBar } from 'expo-status-bar';
+import { SafeAreaView, StyleSheet } from 'react-native';
+import AppNavigator from './src/app/navigation/AppNavigator';
+import { AppProvider } from './src/app/providers/AppProvider';
+import EnvGate from './src/app/components/EnvGate';
+
+export default function App(): JSX.Element {
+  return (
+    <SafeAreaView style={styles.root}>
+      <AppProvider>
+        <EnvGate>
+          <AppNavigator />
+        </EnvGate>
+      </AppProvider>
+      <StatusBar style="light" />
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#0b1224',
+  },
+});
