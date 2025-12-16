@@ -1,6 +1,6 @@
 import { SupabaseClient, createClient } from '@supabase/supabase-js';
 import { getValidatedEnv } from '../env';
-import { Database } from './types';
+import { Database } from './database.types';
 
 let cachedClient: SupabaseClient<Database> | null = null;
 let clientError: Error | null = null;

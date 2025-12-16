@@ -5,7 +5,7 @@ import { GridBoard, GridCell } from '../../ui/GridBoard';
 import { PrimaryButton } from '../../ui/PrimaryButton';
 import { PromptCard } from '../../ui/PromptCard';
 import { colors, spacing, typography } from '../../ui/theme';
-import { GamePlugin, SessionConfig } from '../types';
+import { AnyGamePlugin, GamePlugin, SessionConfig } from '../types';
 import { mulberry32, summarizeScores } from '../utils';
 
 interface ChoiceTrial {
@@ -15,8 +15,24 @@ interface ChoiceTrial {
   difficulty: number;
 }
 
-function renderChoiceTrial({ trialData, onInput, disabled }: any): JSX.Element {
-  const data = trialData as ChoiceTrial;
+type ChoiceInput = string | string[];
+type ReactionTrial = { delayMs: number; thresholdMs: number };
+type GridHighlightTrial = { gridSize: number; cells: GridCell[]; targetIndex: number };
+type SequenceSpanTrial = { prompt: string; options: { id: string; label: string }[]; stimulusType: string; difficulty: number };
+type SpatialSpanTrial = { gridSize: number; cells: GridCell[]; sequence: string[] };
+type SpatialMemoryTrial = { gridSize: number; cells: GridCell[]; targets: string[] };
+type MentalRotationTrial = ChoiceTrial & { angle: number };
+
+function renderChoiceTrial({
+  trialData,
+  onInput,
+  disabled,
+}: {
+  trialData: ChoiceTrial;
+  onInput: (input: ChoiceInput) => void;
+  disabled?: boolean;
+}): JSX.Element {
+  const data = trialData;
   return (
     <View style={styles.cardBody}>
       <PromptCard title={data.prompt} body={`Stimulus: ${data.stimulusType}`} />
@@ -27,15 +43,16 @@ function renderChoiceTrial({ trialData, onInput, disabled }: any): JSX.Element {
   );
 }
 
-function scoreChoice({ trialData, input, timeMs }: { trialData: ChoiceTrial; input: unknown; timeMs: number }) {
-  const data = trialData as ChoiceTrial;
+function scoreChoice({ trialData, input, timeMs }: { trialData: ChoiceTrial; input: ChoiceInput; timeMs: number }) {
+  const data = trialData;
   const correctOption = data.options.find((opt) => opt.correct);
-  const isCorrect = input === correctOption?.id;
+  const provided = Array.isArray(input) ? input[0] : input;
+  const isCorrect = provided === correctOption?.id;
   const scoreTotal = Math.max(0, (isCorrect ? 1200 : 400) - timeMs / 8);
   return { accuracy: isCorrect ? 1 : 0, timeMs, errors: isCorrect ? 0 : 1, scoreTotal, extras: { stimulus: data.stimulusType } };
 }
 
-function recommendDifficulty(lastNScores: any[], currentDifficulty: number) {
+function recommendDifficulty(lastNScores: { accuracy: number }[], currentDifficulty: number) {
   if (!lastNScores.length) return currentDifficulty;
   const avg = lastNScores.reduce((acc, score) => acc + score.accuracy, 0) / lastNScores.length;
   if (avg > 0.85) return Math.min(10, currentDifficulty + 1);
@@ -43,11 +60,11 @@ function recommendDifficulty(lastNScores: any[], currentDifficulty: number) {
   return currentDifficulty;
 }
 
-function buildSummary(scores: any[]) {
+function buildSummary(scores: { accuracy: number; timeMs: number; errors: number; scoreTotal: number }[]) {
   return summarizeScores(scores);
 }
 
-function buildGridTrial(seed: number, difficulty: number, gridSize: number) {
+function buildGridTrial(seed: number, difficulty: number, gridSize: number): GridHighlightTrial {
   const rng = mulberry32(seed + difficulty * 7);
   const totalCells = gridSize * gridSize;
   const target = Math.floor(rng() * totalCells);
@@ -56,8 +73,16 @@ function buildGridTrial(seed: number, difficulty: number, gridSize: number) {
   return { gridSize, cells, targetIndex: target };
 }
 
-function renderGridTrial({ trialData, onInput, disabled }: any): JSX.Element {
-  const data = trialData as { gridSize: number; cells: GridCell[] };
+function renderGridTrial({
+  trialData,
+  onInput,
+  disabled,
+}: {
+  trialData: GridHighlightTrial;
+  onInput: (input: string) => void;
+  disabled?: boolean;
+}): JSX.Element {
+  const data = trialData;
   return (
     <View style={styles.cardBody}>
       <PromptCard title="Tap the highlighted cell" body="Accuracy beats speed." />
@@ -66,9 +91,9 @@ function renderGridTrial({ trialData, onInput, disabled }: any): JSX.Element {
   );
 }
 
-function scoreGrid({ trialData, input, timeMs }: any) {
-  const data = trialData as { cells: GridCell[]; targetIndex: number };
-  const isCorrect = input === data.cells[data.targetIndex].id;
+function scoreGrid({ trialData, input, timeMs }: { trialData: GridHighlightTrial; input: string; timeMs: number }) {
+  const data = trialData;
+  const isCorrect = input === data.cells[data.targetIndex]?.id;
   return { accuracy: isCorrect ? 1 : 0, timeMs, errors: isCorrect ? 0 : 1, scoreTotal: isCorrect ? 1500 - timeMs / 6 : 100, extras: {} };
 }
 
@@ -89,7 +114,7 @@ function timedSession(durationSeconds: number, defaultDifficulty: number, maxTri
 }
 
 // Simple Reaction
-export const simpleReactionGame: GamePlugin = {
+export const simpleReactionGame: GamePlugin<ReactionTrial, string> = {
   id: 'simple-reaction',
   title: 'Simple Reaction',
   description: 'Wait for GO then tap quickly without false starting.',
@@ -105,7 +130,7 @@ export const simpleReactionGame: GamePlugin = {
     return { delayMs, thresholdMs: 250 + difficulty * 20 };
   },
   renderTrial({ trialData, onInput, disabled }) {
-    const data = trialData as { delayMs: number; thresholdMs: number };
+    const data = trialData;
     return (
       <View style={styles.cardBody}>
         <PromptCard title="Wait for GO" body={`Signal appears after ${Math.round(data.delayMs / 100) / 10}s`} />
@@ -114,7 +139,7 @@ export const simpleReactionGame: GamePlugin = {
     );
   },
   score({ trialData, timeMs }) {
-    const data = trialData as { delayMs: number; thresholdMs: number };
+    const data = trialData;
     const falseStart = timeMs < data.delayMs;
     const reaction = Math.max(0, timeMs - data.delayMs);
     const accuracy = falseStart ? 0 : reaction <= data.thresholdMs ? 1 : 0.5;
@@ -127,7 +152,7 @@ export const simpleReactionGame: GamePlugin = {
 };
 
 // Choice Reaction
-export const choiceReactionGame: GamePlugin = {
+export const choiceReactionGame: GamePlugin<ChoiceTrial, ChoiceInput> = {
   id: 'choice-reaction',
   title: 'Choice Reaction',
   description: 'Tap the matching symbol among several options.',
@@ -151,7 +176,7 @@ export const choiceReactionGame: GamePlugin = {
 };
 
 // Go / No-go
-export const goNoGoGame: GamePlugin = {
+export const goNoGoGame: GamePlugin<ChoiceTrial, ChoiceInput> = {
   id: 'go-no-go',
   title: 'Go / No-Go',
   description: 'Press for green targets, withhold for red.',
@@ -168,7 +193,7 @@ export const goNoGoGame: GamePlugin = {
     return { prompt, options: [{ id: 'go', label: 'Go', correct: isGo }, { id: 'stop', label: 'No-Go', correct: !isGo }], stimulusType: isGo ? 'green' : 'red', difficulty } satisfies ChoiceTrial;
   },
   renderTrial({ trialData, onInput, disabled }) {
-    const data = trialData as ChoiceTrial;
+    const data = trialData;
     return (
       <View style={styles.cardBody}>
         <PromptCard title={data.prompt} body={data.stimulusType === 'green' ? 'Tap Go quickly.' : 'Resist tapping to avoid errors.'} />
@@ -180,7 +205,7 @@ export const goNoGoGame: GamePlugin = {
     );
   },
   score({ trialData, input, timeMs }) {
-    const data = trialData as ChoiceTrial;
+    const data = trialData;
     const goTarget = data.options.find((opt) => opt.correct)?.id;
     const isCorrect = input === goTarget;
     const omission = input === 'stop' && data.options.find((opt) => opt.correct)?.id === 'go';
@@ -194,7 +219,7 @@ export const goNoGoGame: GamePlugin = {
 };
 
 // Flanker Arrows
-export const flankerArrowsGame: GamePlugin = {
+export const flankerArrowsGame: GamePlugin<ChoiceTrial, ChoiceInput> = {
   id: 'flanker-arrows',
   title: 'Flanker Arrows',
   description: 'Ignore flanking arrows and match the center.',
@@ -218,7 +243,7 @@ export const flankerArrowsGame: GamePlugin = {
   },
   renderTrial: renderChoiceTrial,
   score({ trialData, input, timeMs }) {
-    const data = trialData as ChoiceTrial;
+    const data = trialData;
     const base = scoreChoice({ trialData: data, input, timeMs });
     const cost = data.stimulusType === 'conflict' ? 0.05 : 0;
     return { ...base, scoreTotal: base.scoreTotal - cost * 500, extras: { ...base.extras, interferenceCost: cost } };
@@ -228,7 +253,7 @@ export const flankerArrowsGame: GamePlugin = {
 };
 
 // Colour Word Conflict
-export const colourWordConflictGame: GamePlugin = {
+export const colourWordConflictGame: GamePlugin<ChoiceTrial, ChoiceInput> = {
   id: 'colour-word-conflict',
   title: 'Colour Word Conflict',
   description: 'Name the ink colour, ignore the word.',
@@ -250,8 +275,8 @@ export const colourWordConflictGame: GamePlugin = {
   },
   renderTrial: renderChoiceTrial,
   score({ trialData, input, timeMs }) {
-    const base = scoreChoice({ trialData: trialData as ChoiceTrial, input, timeMs });
-    const interferenceCost = base.accuracy === 1 && (trialData as ChoiceTrial).stimulusType ? 0.02 : 0;
+    const base = scoreChoice({ trialData, input, timeMs });
+    const interferenceCost = base.accuracy === 1 && trialData.stimulusType ? 0.02 : 0;
     return { ...base, extras: { ...base.extras, interferenceCost } };
   },
   recommendNextDifficulty: recommendDifficulty,
@@ -259,7 +284,7 @@ export const colourWordConflictGame: GamePlugin = {
 };
 
 // Task Switching Taps
-export const taskSwitchingTapsGame: GamePlugin = {
+export const taskSwitchingTapsGame: GamePlugin<ChoiceTrial, ChoiceInput> = {
   id: 'task-switching-taps',
   title: 'Task Switching',
   description: 'Switch between tap rules when cues change.',
@@ -282,7 +307,7 @@ export const taskSwitchingTapsGame: GamePlugin = {
   },
   renderTrial: renderChoiceTrial,
   score({ trialData, input, timeMs }) {
-    const data = trialData as ChoiceTrial;
+    const data = trialData;
     const base = scoreChoice({ trialData: data, input, timeMs });
     const switchCost = data.stimulusType === 'high' ? 0.03 : 0.01;
     return { ...base, extras: { ...base.extras, switchCost } };
@@ -292,7 +317,7 @@ export const taskSwitchingTapsGame: GamePlugin = {
 };
 
 // Rule Switch Cards
-export const ruleSwitchCardsGame: GamePlugin = {
+export const ruleSwitchCardsGame: GamePlugin<ChoiceTrial, ChoiceInput> = {
   id: 'rule-switch-cards',
   title: 'Rule Switch Cards',
   description: 'Discover and adapt to changing card rules.',
@@ -318,7 +343,7 @@ export const ruleSwitchCardsGame: GamePlugin = {
   },
   renderTrial: renderChoiceTrial,
   score({ trialData, input, timeMs }) {
-    const base = scoreChoice({ trialData: trialData as ChoiceTrial, input, timeMs });
+    const base = scoreChoice({ trialData, input, timeMs });
     const perseveration = base.accuracy === 0 ? 1 : 0;
     return { ...base, extras: { ...base.extras, perseveration } };
   },
@@ -327,7 +352,7 @@ export const ruleSwitchCardsGame: GamePlugin = {
 };
 
 // Symbol Match Coding
-export const symbolMatchCodingGame: GamePlugin = {
+export const symbolMatchCodingGame: GamePlugin<ChoiceTrial, ChoiceInput> = {
   id: 'symbol-match-coding',
   title: 'Symbol Coding',
   description: 'Map symbols to digits quickly.',
@@ -347,7 +372,7 @@ export const symbolMatchCodingGame: GamePlugin = {
   },
   renderTrial: renderChoiceTrial,
   score({ trialData, input, timeMs }) {
-    const base = scoreChoice({ trialData: trialData as ChoiceTrial, input, timeMs });
+    const base = scoreChoice({ trialData, input, timeMs });
     return { ...base, extras: { ...base.extras, sprint: true } };
   },
   recommendNextDifficulty: recommendDifficulty,
@@ -355,7 +380,7 @@ export const symbolMatchCodingGame: GamePlugin = {
 };
 
 // Sequence Span
-export const sequenceSpanGame: GamePlugin = {
+export const sequenceSpanGame: GamePlugin<SequenceSpanTrial, string[]> = {
   id: 'sequence-span',
   title: 'Sequence Span',
   description: 'Remember and replay growing sequences.',
@@ -365,33 +390,33 @@ export const sequenceSpanGame: GamePlugin = {
   getTutorialSteps() {
     return makeTutorial('Sequence Span');
   },
-  generateTrial(difficulty, seed) {
+  generateTrial(difficulty, seed): SequenceSpanTrial {
     const rng = mulberry32(seed + difficulty * 7);
     const length = 3 + difficulty;
     const sequence = Array.from({ length }, () => Math.floor(rng() * 4));
     return { prompt: 'Repeat the sequence', options: sequence.map((val, idx) => ({ id: `${idx}-${val}`, label: `Step ${idx + 1}: ${val}` })), stimulusType: 'sequence', difficulty };
   },
   renderTrial({ trialData, onInput }) {
-    const data = trialData as any;
+    const data = trialData;
     return (
       <View style={styles.cardBody}>
         <PromptCard title={data.prompt} body={`Length ${data.options.length}`} />
-        <PrimaryButton label="Mark recalled" onPress={() => onInput(data.options.map((opt: any) => opt.id))} />
+        <PrimaryButton label="Mark recalled" onPress={() => onInput(data.options.map((opt) => opt.id))} />
       </View>
     );
   },
   score({ trialData, input, timeMs }) {
-    const expected = (trialData as any).options.map((opt: any) => opt.id).join('-');
-    const provided = Array.isArray(input) ? (input as any[]).join('-') : `${input}`;
+    const expected = trialData.options.map((opt) => opt.id).join('-');
+    const provided = Array.isArray(input) ? input.join('-') : `${input}`;
     const correct = expected === provided;
-    return { accuracy: correct ? 1 : 0, timeMs, errors: correct ? 0 : 1, scoreTotal: correct ? 1600 - timeMs / 5 : 200, extras: { length: (trialData as any).options.length } };
+    return { accuracy: correct ? 1 : 0, timeMs, errors: correct ? 0 : 1, scoreTotal: correct ? 1600 - timeMs / 5 : 200, extras: { length: trialData.options.length } };
   },
   recommendNextDifficulty: recommendDifficulty,
   buildSessionSummary: buildSummary,
 };
 
 // Spatial Span
-export const spatialSpanGame: GamePlugin = {
+export const spatialSpanGame: GamePlugin<SpatialSpanTrial, string[]> = {
   id: 'spatial-span',
   title: 'Spatial Span',
   description: 'Tap remembered block order.',
@@ -401,7 +426,7 @@ export const spatialSpanGame: GamePlugin = {
   getTutorialSteps() {
     return makeTutorial('Spatial Span');
   },
-  generateTrial(difficulty, seed) {
+  generateTrial(difficulty, seed): SpatialSpanTrial {
     const gridSize = 3;
     const rng = mulberry32(seed + difficulty * 2);
     const length = 2 + difficulty;
@@ -410,7 +435,7 @@ export const spatialSpanGame: GamePlugin = {
     return { gridSize, cells, sequence };
   },
   renderTrial({ trialData, onInput, disabled }) {
-    const data = trialData as any;
+    const data = trialData;
     return (
       <View style={styles.cardBody}>
         <PromptCard title="Recall the order" body={`Sequence length ${data.sequence.length}`} />
@@ -419,17 +444,17 @@ export const spatialSpanGame: GamePlugin = {
     );
   },
   score({ trialData, input, timeMs }) {
-    const expected = (trialData as any).sequence.join('-');
-    const provided = Array.isArray(input) ? (input as any[]).join('-') : `${input}`;
+    const expected = trialData.sequence.join('-');
+    const provided = Array.isArray(input) ? input.join('-') : `${input}`;
     const correct = expected === provided;
-    return { accuracy: correct ? 1 : 0, timeMs, errors: correct ? 0 : 1, scoreTotal: correct ? 1700 - timeMs / 5 : 150, extras: { length: (trialData as any).sequence.length } };
+    return { accuracy: correct ? 1 : 0, timeMs, errors: correct ? 0 : 1, scoreTotal: correct ? 1700 - timeMs / 5 : 150, extras: { length: trialData.sequence.length } };
   },
   recommendNextDifficulty: recommendDifficulty,
   buildSessionSummary: buildSummary,
 };
 
 // Spatial Memory Grid
-export const spatialMemoryGridGame: GamePlugin = {
+export const spatialMemoryGridGame: GamePlugin<SpatialMemoryTrial, boolean> = {
   id: 'spatial-memory-grid',
   title: 'Spatial Memory',
   description: 'Remember briefly shown tiles.',
@@ -439,7 +464,7 @@ export const spatialMemoryGridGame: GamePlugin = {
   getTutorialSteps() {
     return makeTutorial('Spatial Memory');
   },
-  generateTrial(difficulty, seed) {
+  generateTrial(difficulty, seed): SpatialMemoryTrial {
     const gridSize = 4;
     const rng = mulberry32(seed + difficulty * 5);
     const targetCount = 2 + difficulty;
@@ -449,7 +474,7 @@ export const spatialMemoryGridGame: GamePlugin = {
     return { gridSize, cells: base.cells, targets: Array.from(targets).map((idx) => base.cells[idx].id) };
   },
   renderTrial({ trialData, onInput, disabled }) {
-    const data = trialData as any;
+    const data = trialData;
     return (
       <View style={styles.cardBody}>
         <PromptCard title="Recall the lit tiles" body={`${data.targets.length} tiles were shown`} />
@@ -459,14 +484,14 @@ export const spatialMemoryGridGame: GamePlugin = {
   },
   score({ input, timeMs, trialData }) {
     const correct = Boolean(input);
-    return { accuracy: correct ? 1 : 0, timeMs, errors: correct ? 0 : 1, scoreTotal: correct ? 1500 - timeMs / 5 : 100, extras: { targets: (trialData as any).targets.length } };
+    return { accuracy: correct ? 1 : 0, timeMs, errors: correct ? 0 : 1, scoreTotal: correct ? 1500 - timeMs / 5 : 100, extras: { targets: trialData.targets.length } };
   },
   recommendNextDifficulty: recommendDifficulty,
   buildSessionSummary: buildSummary,
 };
 
 // N-back
-export const nBackGame: GamePlugin = {
+export const nBackGame: GamePlugin<ChoiceTrial, ChoiceInput> = {
   id: 'n-back',
   title: 'N-Back',
   description: 'Respond when current item matches N steps back.',
@@ -486,7 +511,7 @@ export const nBackGame: GamePlugin = {
   },
   renderTrial: renderChoiceTrial,
   score({ trialData, input, timeMs }) {
-    const base = scoreChoice({ trialData: trialData as ChoiceTrial, input, timeMs });
+    const base = scoreChoice({ trialData, input, timeMs });
     const dPrimeProxy = base.accuracy === 1 ? 1.2 : 0.2;
     return { ...base, extras: { ...base.extras, dPrimeProxy } };
   },
@@ -495,7 +520,7 @@ export const nBackGame: GamePlugin = {
 };
 
 // Mental Rotation Grid
-export const mentalRotationGridGame: GamePlugin = {
+export const mentalRotationGridGame: GamePlugin<MentalRotationTrial, ChoiceInput> = {
   id: 'mental-rotation-grid',
   title: 'Mental Rotation',
   description: 'Judge rotated shapes in a grid.',
@@ -505,7 +530,7 @@ export const mentalRotationGridGame: GamePlugin = {
   getTutorialSteps() {
     return makeTutorial('Mental Rotation');
   },
-  generateTrial(difficulty, seed) {
+  generateTrial(difficulty, seed): MentalRotationTrial {
     const rng = mulberry32(seed + difficulty * 5);
     const angle = Math.floor(rng() * 180);
     const mirror = rng() > 0.5;
@@ -513,11 +538,11 @@ export const mentalRotationGridGame: GamePlugin = {
       { id: 'same', label: 'Same', correct: !mirror },
       { id: 'mirror', label: 'Mirror', correct: mirror },
     ];
-    return { prompt: `Angle ${angle}°`, options, stimulusType: mirror ? 'mirror' : 'rotate', difficulty, angle } as ChoiceTrial & { angle: number };
+    return { prompt: `Angle ${angle}°`, options, stimulusType: mirror ? 'mirror' : 'rotate', difficulty, angle };
   },
   renderTrial: renderChoiceTrial,
   score({ trialData, input, timeMs }) {
-    const data = trialData as any;
+    const data = trialData;
     const base = scoreChoice({ trialData: data, input, timeMs });
     const angleWeight = 1 + data.angle / 180;
     return { ...base, scoreTotal: base.scoreTotal * angleWeight, extras: { ...base.extras, angle: data.angle } };
@@ -527,7 +552,7 @@ export const mentalRotationGridGame: GamePlugin = {
 };
 
 // Multiple Object Tracking
-export const multipleObjectTrackingGame: GamePlugin = {
+export const multipleObjectTrackingGame: GamePlugin<ChoiceTrial, ChoiceInput> = {
   id: 'multiple-object-tracking',
   title: 'Object Tracking',
   description: 'Track moving targets among distractors.',
@@ -548,9 +573,9 @@ export const multipleObjectTrackingGame: GamePlugin = {
   },
   renderTrial: renderChoiceTrial,
   score({ trialData, input, timeMs }) {
-    const data = trialData as ChoiceTrial;
+    const data = trialData;
     const correctIds = data.options.filter((opt) => opt.correct).map((o) => o.id);
-    const provided = Array.isArray(input) ? (input as string[]) : [input as string];
+    const provided = Array.isArray(input) ? input : [input];
     const hits = provided.filter((id) => correctIds.includes(id)).length;
     const accuracy = hits / correctIds.length;
     const errors = correctIds.length - hits;
@@ -561,7 +586,7 @@ export const multipleObjectTrackingGame: GamePlugin = {
 };
 
 // Pattern Completion
-export const patternCompletionGame: GamePlugin = {
+export const patternCompletionGame: GamePlugin<ChoiceTrial, ChoiceInput> = {
   id: 'pattern-completion',
   title: 'Pattern Completion',
   description: 'Choose the tile that completes the pattern.',
@@ -578,14 +603,14 @@ export const patternCompletionGame: GamePlugin = {
   },
   renderTrial: renderChoiceTrial,
   score({ trialData, input, timeMs }) {
-    const base = scoreChoice({ trialData: trialData as ChoiceTrial, input, timeMs });
+    const base = scoreChoice({ trialData, input, timeMs });
     return { ...base, scoreTotal: base.scoreTotal + 100, extras: { ...base.extras, reasoning: true } };
   },
   recommendNextDifficulty: recommendDifficulty,
   buildSessionSummary: buildSummary,
 };
 
-export const allV1Games: GamePlugin[] = [
+export const allV1Games: AnyGamePlugin[] = [
   simpleReactionGame,
   choiceReactionGame,
   goNoGoGame,

@@ -26,7 +26,7 @@ export interface TutorialStep {
   demoConfig?: Record<string, unknown>;
 }
 
-export interface GamePlugin {
+export type GamePlugin<TTrial = unknown, TInput = unknown> = {
   id: string;
   title: string;
   description: string;
@@ -34,10 +34,12 @@ export interface GamePlugin {
   version: string;
   session: SessionConfig;
   getTutorialSteps(): TutorialStep[];
-  generateTrial(difficulty: number, seed: number): Record<string, unknown>;
-  renderTrial(params: { trialData: Record<string, unknown>; onInput: (input: unknown) => void; disabled?: boolean }): JSX.Element;
-  score(params: { trialData: Record<string, unknown>; input: unknown; timeMs: number }): StandardScore;
+  generateTrial(difficulty: number, seed: number): TTrial;
+  renderTrial(params: { trialData: TTrial; onInput: (input: TInput) => void; disabled?: boolean }): JSX.Element;
+  score(params: { trialData: TTrial; input: TInput; timeMs: number }): StandardScore;
   recommendNextDifficulty(lastNScores: StandardScore[], currentDifficulty: number): number;
   buildSessionSummary(scores: StandardScore[]): ResultSummary;
   requiresPremium?: boolean;
-}
+};
+
+export type AnyGamePlugin = GamePlugin<any, any>;

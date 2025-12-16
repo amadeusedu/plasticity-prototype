@@ -38,7 +38,7 @@ export default function AppNavigator(): JSX.Element {
     <NavigationContainer>
       <Stack.Navigator initialRouteName="Home">
         <Stack.Screen name="Home" options={{ title: 'Plasticity' }}>
-          {(props) => (
+          {(props: any) => (
             <HomeScreen
               {...props}
               devMenuVisible={devMenuVisible}

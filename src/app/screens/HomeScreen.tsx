@@ -133,8 +133,8 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   error: {
-    color: colors.warning,
     ...typography.body,
+    color: colors.warning,
   },
   secret: {
     ...typography.body,

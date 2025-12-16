@@ -1,9 +1,9 @@
-import { GameCategory, GamePlugin } from './types';
+import { AnyGamePlugin, GameCategory } from './types';
 import { allV1Games } from './plugins/v1Games';
 
-const plugins: Record<string, GamePlugin> = Object.fromEntries(allV1Games.map((game) => [game.id, game]));
+const plugins: Record<string, AnyGamePlugin> = Object.fromEntries(allV1Games.map((game) => [game.id, game]));
 
-export function getGamePlugin(gameId: string): GamePlugin {
+export function getGamePlugin(gameId: string): AnyGamePlugin {
   const plugin = plugins[gameId];
   if (!plugin) {
     throw new Error(`Game plugin not found: ${gameId}`);
@@ -11,7 +11,7 @@ export function getGamePlugin(gameId: string): GamePlugin {
   return plugin;
 }
 
-export function listGames(): GamePlugin[] {
+export function listGames(): AnyGamePlugin[] {
   return Object.values(plugins);
 }
 

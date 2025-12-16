@@ -9,7 +9,7 @@ const EnvSchema = z.object({
   FORCE_PREMIUM: z
     .enum(['true', 'false'])
     .optional()
-    .transform((value) => value === 'true'),
+    .transform((value: string | undefined) => value === 'true'),
 });
 
 function readEnv(key: string, sources: EnvSource[]): string | undefined {
@@ -59,7 +59,7 @@ export function getValidatedEnv(): ValidatedEnv {
 
   const parsed = EnvSchema.safeParse(rawEnv);
   if (!parsed.success) {
-    const messages = parsed.error.errors.map((err) => `${err.path.join('.')}: ${err.message}`).join('\n');
+    const messages = parsed.error.errors.map((err: any) => `${err.path.join('.')}: ${err.message}`).join('\n');
     throw new Error(`Environment validation failed:\n${messages}`);
   }
 
