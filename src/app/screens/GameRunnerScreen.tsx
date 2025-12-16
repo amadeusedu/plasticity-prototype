@@ -248,7 +248,7 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
     void finalizeSession();
   }, [finalizeSession]);
 
-  const renderTopBar = () => {
+  const topBar = useMemo(() => {
     const progress = sessionConfig.mode === 'fixed'
       ? Math.min(1, scores.length / sessionConfig.trials)
       : durationLimit
@@ -273,9 +273,9 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
         </View>
       </View>
     );
-  };
+  }, [difficulty, durationLimit, elapsedMs, plugin.title, scores.length, sessionConfig.mode, sessionConfig.trials]);
 
-  const renderTutorial = () => {
+  const renderTutorial = useCallback(() => {
     const step = tutorialSteps[currentStep];
     return (
       <SlideUp>
@@ -286,48 +286,57 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
         </View>
       </SlideUp>
     );
-  };
+  }, [currentStep, handleTutorialNext, tutorialSteps]);
 
-  const renderCountdown = () => (
-    <SlideUp>
-      <View style={styles.card}>
-        <Countdown seconds={countdownSeconds} onComplete={beginRun} />
-      </View>
-    </SlideUp>
+  const renderCountdown = useCallback(
+    () => (
+      <SlideUp>
+        <View style={styles.card}>
+          <Countdown seconds={countdownSeconds} onComplete={beginRun} />
+        </View>
+      </SlideUp>
+    ),
+    [beginRun, countdownSeconds]
   );
 
-  const renderTrial = () => {
+  const renderTrial = useCallback(() => {
     if (!trialData) return null;
     return (
       <SlideUp>
         <View style={styles.card}>{plugin.renderTrial({ trialData, onInput: handleTrialInput, disabled: isPaused || phase !== 'running' })}</View>
       </SlideUp>
     );
-  };
+  }, [handleTrialInput, isPaused, phase, plugin, trialData]);
 
-  const renderSummary = () => (
-    <SlideUp>
-      <View style={styles.card}>
-        <Text style={styles.title}>Session complete</Text>
-        <Text style={styles.body}>Accuracy: {(summary ?? summarizeScores(scores)).accuracyAvg.toFixed(2)}</Text>
-        <Text style={styles.body}>Average time: {(summary ?? summarizeScores(scores)).timeAvgMs.toFixed(0)} ms</Text>
-        <Text style={styles.body}>Total score: {(summary ?? summarizeScores(scores)).scoreTotal.toFixed(0)}</Text>
-        <PrimaryButton label="Back to games" onPress={() => navigation.popToTop()} />
-      </View>
-    </SlideUp>
+  const renderSummary = useCallback(
+    () => (
+      <SlideUp>
+        <View style={styles.card}>
+          <Text style={styles.title}>Session complete</Text>
+          <Text style={styles.body}>Accuracy: {(summary ?? summarizeScores(scores)).accuracyAvg.toFixed(2)}</Text>
+          <Text style={styles.body}>Average time: {(summary ?? summarizeScores(scores)).timeAvgMs.toFixed(0)} ms</Text>
+          <Text style={styles.body}>Total score: {(summary ?? summarizeScores(scores)).scoreTotal.toFixed(0)}</Text>
+          <PrimaryButton label="Back to games" onPress={() => navigation.popToTop()} />
+        </View>
+      </SlideUp>
+    ),
+    [navigation, scores, summary]
   );
 
-  const renderBlocked = () => (
-    <SlideUp>
-      <View style={styles.card}>
-        <Text style={styles.title}>Session locked</Text>
-        <Text style={styles.body}>{blockedReason ?? 'Premium required for additional sessions today.'}</Text>
-        <PrimaryButton label="Back" onPress={() => navigation.popToTop()} />
-      </View>
-    </SlideUp>
+  const renderBlocked = useCallback(
+    () => (
+      <SlideUp>
+        <View style={styles.card}>
+          <Text style={styles.title}>Session locked</Text>
+          <Text style={styles.body}>{blockedReason ?? 'Premium required for additional sessions today.'}</Text>
+          <PrimaryButton label="Back" onPress={() => navigation.popToTop()} />
+        </View>
+      </SlideUp>
+    ),
+    [blockedReason, navigation]
   );
 
-  const renderBody = () => {
+  const bodyContent = useMemo(() => {
     if (phase === 'blocked') return renderBlocked();
     if (!session && phase !== 'summary') {
       return (
@@ -342,15 +351,15 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
     if (phase === 'running') return renderTrial();
     if (phase === 'summary') return renderSummary();
     return null;
-  };
+  }, [phase, renderBlocked, renderCountdown, renderSummary, renderTrial, renderTutorial, session]);
 
   const canPause = phase === 'running';
   const canExit = phase === 'running' || phase === 'summary';
 
   return (
     <View style={styles.container}>
-      {renderTopBar()}
-      <ScrollView contentContainerStyle={styles.scroll}>{renderBody()}</ScrollView>
+      {topBar}
+      <ScrollView contentContainerStyle={styles.scroll}>{bodyContent}</ScrollView>
       <View style={styles.footer}>
         {canPause ? (
           <PrimaryButton label={isPaused ? 'Resume' : 'Pause'} onPress={handlePauseToggle} variant="ghost" />
