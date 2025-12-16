@@ -94,10 +94,10 @@ export function getWeeklyReport(): WeeklyReport {
   return { generatedAt: new Date().toISOString(), domainTrends, keyMetrics, recommendation, profile };
 }
 
-export function seedWeeklyData(): void {
+export function seedWeeklyData(days = 7): void {
   const today = new Date();
   const games = ['simple-reaction', 'go-no-go', 'n-back', 'symbol-match-coding', 'mental-rotation-grid'];
-  for (let i = 0; i < 7; i += 1) {
+  for (let i = 0; i < days; i += 1) {
     const date = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
     games.forEach((gameId, idx) => {
       const startedAt = new Date(date.getTime() + idx * 15 * 60 * 1000).toISOString();

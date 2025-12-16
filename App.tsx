@@ -4,15 +4,18 @@ import { SafeAreaView, StyleSheet } from 'react-native';
 import AppNavigator from './src/app/navigation/AppNavigator';
 import { AppProvider } from './src/app/providers/AppProvider';
 import EnvGate from './src/app/components/EnvGate';
+import { GlobalErrorBoundary } from './src/app/components/GlobalErrorBoundary';
 
 export default function App(): JSX.Element {
   return (
     <SafeAreaView style={styles.root}>
-      <AppProvider>
-        <EnvGate>
-          <AppNavigator />
-        </EnvGate>
-      </AppProvider>
+      <GlobalErrorBoundary>
+        <AppProvider>
+          <EnvGate>
+            <AppNavigator />
+          </EnvGate>
+        </AppProvider>
+      </GlobalErrorBoundary>
       <StatusBar style="light" />
     </SafeAreaView>
   );

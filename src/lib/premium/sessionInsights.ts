@@ -61,6 +61,11 @@ export function listInsightsForDate(dateIso: string): SessionInsight[] {
   return listInsights().filter((insight) => new Date(insight.startedAt).toDateString() === target);
 }
 
+export function latestInsight(): SessionInsight | null {
+  const [latest] = listInsights();
+  return latest ?? null;
+}
+
 export function clearInsights(): void {
   memoryCache = [];
   saveToStore(memoryCache);

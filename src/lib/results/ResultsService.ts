@@ -20,6 +20,7 @@ interface CreateSessionParams {
   gameVersion?: string | null;
   sessionId?: string;
   startedAt?: string;
+  idempotencyKey?: string;
 }
 
 interface FinalizeSessionParams {
@@ -140,6 +141,10 @@ export class ResultsService {
   private readonly queue: QueueStorage;
   private supportsTrialTable: boolean | null = null;
   private supportsSessionExtensions = true;
+  private backoffMs = 1000;
+  private readonly maxBackoffMs = 30_000;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private isFlushing = false;
 
   private get client() {
     if (!this.supabase) {
@@ -150,12 +155,16 @@ export class ResultsService {
 
   constructor(storage?: QueueStorage) {
     this.queue = storage ?? (typeof localStorage === 'undefined' ? new MemoryQueueStorage() : new LocalStorageQueue());
-    void this.flushPendingQueue();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => this.scheduleFlush(250));
+    }
+    this.scheduleFlush();
   }
 
   async createSession(params: CreateSessionParams): Promise<{ id: string; startedAt: string; userId: string }> {
     const userId = await this.requireUserId();
     const sessionId = params.sessionId ?? generateId();
+    const idempotencyKey = params.idempotencyKey ?? sessionId;
     const startedAt = params.startedAt ?? new Date().toISOString();
 
     const payload: GameSessionsRow & { id: string } = {
@@ -175,15 +184,19 @@ export class ResultsService {
       extra: params.metadata ?? null,
       app_version: params.appVersion ?? null,
       game_version: params.gameVersion ?? null,
-      metadata: params.metadata ?? null,
+      metadata: { ...(params.metadata ?? {}), idempotencyKey },
     };
 
-    const insertPromise = this.client.from('game_sessions').insert(payload).select('id, started_at, user_id').single();
+    const insertPromise = this.client
+      .from('game_sessions')
+      .upsert(payload, { onConflict: 'id' })
+      .select('id, started_at, user_id')
+      .single();
     const { data, error } = await insertPromise;
 
     if (error) {
       if (isNetworkLikeError(error)) {
-        await this.enqueue({ type: 'create', payload: { ...params, sessionId, userId, startedAt } });
+        await this.enqueue({ type: 'create', payload: { ...params, idempotencyKey, sessionId, userId, startedAt } });
         return { id: sessionId, startedAt, userId };
       }
 
@@ -230,7 +243,7 @@ export class ResultsService {
       created_at: new Date().toISOString(),
     };
 
-    const attempt = await this.client.from('game_trials').insert(trialRow);
+    const attempt = await this.client.from('game_trials').upsert(trialRow, { onConflict: 'session_id,trial_index' });
     if (attempt.error) {
       if (isNetworkLikeError(attempt.error)) {
         await this.enqueue({ type: 'trial', payload: { sessionId, userId, trial } });
@@ -423,22 +436,50 @@ export class ResultsService {
   }
 
   private async requireUserId(): Promise<string> {
-    const userId = await getSupabaseUserId();
-    if (!userId) {
-      throw new Error('No Supabase auth session found; user must be signed in to write results.');
+    try {
+      const userId = await getSupabaseUserId();
+      if (!userId) {
+        throw new Error('Session expired. Please sign in again to continue saving progress.');
+      }
+      return userId;
+    } catch (error) {
+      const message = (error as Error)?.message?.toLowerCase?.() ?? '';
+      if (message.includes('token') || message.includes('auth')) {
+        throw new Error('Session expired. Please sign in again to continue saving progress.');
+      }
+      throw error;
     }
-    return userId;
   }
 
   private async enqueue(action: PendingAction): Promise<void> {
     const queue = await this.queue.load();
     queue.push(action);
     await this.queue.save(queue);
+    this.scheduleFlush();
   }
 
-  private async flushPendingQueue(): Promise<void> {
+  private scheduleFlush(delayMs = this.backoffMs): void {
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(async () => {
+      this.flushTimer = null;
+      const success = await this.flushPendingQueue();
+      if (!success) {
+        this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+        this.scheduleFlush(this.backoffMs);
+      } else {
+        this.backoffMs = 1000;
+      }
+    }, delayMs);
+  }
+
+  private async flushPendingQueue(): Promise<boolean> {
+    if (this.isFlushing) return false;
+    this.isFlushing = true;
     const queue = await this.queue.load();
-    if (!queue.length) return;
+    if (!queue.length) {
+      this.isFlushing = false;
+      return true;
+    }
 
     const remaining: PendingAction[] = [];
     for (const action of queue) {
@@ -453,9 +494,15 @@ export class ResultsService {
             sessionId: action.payload.sessionId,
             variant: action.payload.variant,
             startedAt: action.payload.startedAt,
+            idempotencyKey: action.payload.idempotencyKey,
           });
         } else if (action.type === 'trial') {
-          await this.appendTrial(action.payload.sessionId, action.payload.trial.index, action.payload.trial.trialData, action.payload.trial.score);
+          await this.appendTrial(
+            action.payload.sessionId,
+            action.payload.trial.index,
+            action.payload.trial.trialData,
+            action.payload.trial.score
+          );
         } else if (action.type === 'finalize') {
           await this.finalizeSession({
             sessionId: action.payload.sessionId,
@@ -477,6 +524,8 @@ export class ResultsService {
     }
 
     await this.queue.save(remaining);
+    this.isFlushing = false;
+    return remaining.length === 0;
   }
 }
 
