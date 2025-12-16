@@ -11,6 +11,7 @@
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write .",
     "test": "vitest",
+    "gen:game": "node scripts/gen-game.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
