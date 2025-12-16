@@ -18,7 +18,7 @@ export function PrimaryButton({ label, onPress, onLongPress, disabled, variant =
       onPress={onPress}
       onLongPress={onLongPress}
       disabled={disabled}
-      style={({ pressed }) => [
+      style={({ pressed }: { pressed: boolean }) => [
         styles.base,
         variant === 'ghost' ? styles.ghost : styles.primary,
         disabled ? styles.disabled : null,

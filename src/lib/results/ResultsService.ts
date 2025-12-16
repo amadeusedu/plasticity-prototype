@@ -185,6 +185,7 @@ export class ResultsService {
       app_version: params.appVersion ?? null,
       game_version: params.gameVersion ?? null,
       metadata: { ...(params.metadata ?? {}), idempotencyKey },
+      created_at: null,
     };
 
     const insertPromise = this.client
@@ -227,7 +228,7 @@ export class ResultsService {
 
   async appendTrial(sessionId: string, index: number, trialData: Record<string, unknown>, score: StandardScore): Promise<void> {
     const userId = await this.requireUserId();
-    const normalizedScore: StandardScore = { extras: {}, ...score };
+    const normalizedScore: StandardScore = { ...score, extras: score.extras ?? {} };
     const trial: TrialResult = { index, trialData, score: normalizedScore };
     const parsed = TrialResultSchema.safeParse(trial);
     if (!parsed.success) {
@@ -239,7 +240,7 @@ export class ResultsService {
       session_id: sessionId,
       trial_index: index,
       trial_data: trialData,
-      score,
+      score: normalizedScore,
       created_at: new Date().toISOString(),
     };
 
@@ -388,7 +389,7 @@ export class ResultsService {
       throw error;
     }
 
-    const trials = (data ?? []).map((trial) => ({
+    const trials = (data ?? []).map((trial: any) => ({
       index: trial.trial_index,
       trialData: trial.trial_data,
       score: StandardScoreSchema.parse(trial.score),
@@ -408,10 +409,10 @@ export class ResultsService {
     if (error) throw error;
 
     return (data ?? [])
-      .map((event) => {
+      .map((event: any) => {
         const payload = event.payload as { index?: number; trialData?: Record<string, unknown>; score?: StandardScore };
         if (payload && payload.index !== undefined && payload.trialData && payload.score) {
-          const normalizedScore = { extras: {}, ...payload.score } as StandardScore;
+          const normalizedScore = { ...payload.score, extras: payload.score?.extras ?? {} } as StandardScore;
           const parsed = TrialResultSchema.safeParse({ index: payload.index, trialData: payload.trialData, score: normalizedScore });
           if (parsed.success) {
             return parsed.data;
@@ -419,7 +420,7 @@ export class ResultsService {
         }
         return null;
       })
-      .filter((value): value is TrialResult => value !== null);
+      .filter((value: TrialResult | null): value is TrialResult => value !== null);
   }
 
   private async logTrialAsEvent(sessionId: string, trial: TrialResult): Promise<void> {

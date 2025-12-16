@@ -105,7 +105,7 @@ export function AppProvider({ children }: { children: React.ReactNode }): JSX.El
 }
 
 export function useAppContext(): AppContextValue {
-  const context = useContext(AppContext);
+  const context = useContext<AppContextValue | undefined>(AppContext);
   if (!context) {
     throw new Error('useAppContext must be used within an AppProvider');
   }

@@ -16,7 +16,7 @@ export function ChoiceRow({ label, description, selected, onPress, disabled }: C
       accessibilityLabel={label}
       onPress={onPress}
       disabled={disabled}
-      style={({ pressed }) => [styles.row, selected ? styles.rowSelected : null, pressed && styles.rowPressed]}
+      style={({ pressed }: { pressed: boolean }) => [styles.row, selected ? styles.rowSelected : null, pressed && styles.rowPressed]}
     >
       <View style={styles.textContainer}>
         <Text style={styles.label}>{label}</Text>

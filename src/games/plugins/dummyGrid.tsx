@@ -20,7 +20,7 @@ function buildCells(data: DummyTrialData): GridCell[] {
   }));
 }
 
-export const dummyGridGame: GamePlugin = {
+export const dummyGridGame: GamePlugin<DummyTrialData, string> = {
   id: 'dummy-grid-memory',
   title: 'Pattern Pulse',
   description: 'Tap the highlighted cell as quickly as possible while the target hops around the grid.',
@@ -50,7 +50,7 @@ export const dummyGridGame: GamePlugin = {
     return { gridSize, targetIndex, labels } satisfies DummyTrialData;
   },
   renderTrial({ trialData, onInput, disabled }) {
-    const data = trialData as DummyTrialData;
+    const data = trialData;
     const cells = buildCells(data);
 
     return (
@@ -64,7 +64,7 @@ export const dummyGridGame: GamePlugin = {
     );
   },
   score({ trialData, input, timeMs }) {
-    const data = trialData as DummyTrialData;
+    const data = trialData;
     const isCorrect = input === buildCells(data)[data.targetIndex].id;
     return {
       accuracy: isCorrect ? 1 : 0,

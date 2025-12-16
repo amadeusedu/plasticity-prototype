@@ -16,24 +16,29 @@ interface GridBoardProps {
 }
 
 export function GridBoard({ size, cells, onSelect }: GridBoardProps): JSX.Element {
-  const cellSize = `${100 / size}%`;
+  const rows: GridCell[][] = Array.from({ length: size }, (_, rowIndex) =>
+    cells.slice(rowIndex * size, rowIndex * size + size)
+  );
   return (
     <View style={styles.board}>
-      {cells.map((cell) => (
-        <Pressable
-          key={cell.id}
-          accessibilityLabel={cell.label}
-          onPress={() => onSelect?.(cell)}
-          disabled={cell.disabled}
-          style={({ pressed }) => [
-            styles.cell,
-            { width: cellSize },
-            cell.accent ? styles.cellAccent : null,
-            pressed && !cell.disabled ? styles.cellPressed : null,
-          ]}
-        >
-          <Text style={styles.cellLabel}>{cell.label}</Text>
-        </Pressable>
+      {rows.map((row, idx) => (
+        <View style={styles.row} key={`row-${idx}`}>
+          {row.map((cell) => (
+            <Pressable
+              key={cell.id}
+              accessibilityLabel={cell.label}
+              onPress={() => onSelect?.(cell)}
+              disabled={cell.disabled}
+              style={({ pressed }: { pressed: boolean }) => [
+                styles.cell,
+                cell.accent ? styles.cellAccent : null,
+                pressed && !cell.disabled ? styles.cellPressed : null,
+              ]}
+            >
+              <Text style={styles.cellLabel}>{cell.label}</Text>
+            </Pressable>
+          ))}
+        </View>
       ))}
     </View>
   );
@@ -41,15 +46,17 @@ export function GridBoard({ size, cells, onSelect }: GridBoardProps): JSX.Elemen
 
 const styles = StyleSheet.create({
   board: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     borderRadius: radius.lg,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.border,
   },
+  row: {
+    flexDirection: 'row',
+  },
   cell: {
     aspectRatio: 1,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surfaceAlt,
