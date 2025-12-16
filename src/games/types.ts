@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { ResultSummary, StandardScore } from '../lib/results/schema';
 
 export type GameCategory = 'Attention' | 'Memory' | 'Speed' | 'Flexibility' | 'Spatial' | 'Executive';

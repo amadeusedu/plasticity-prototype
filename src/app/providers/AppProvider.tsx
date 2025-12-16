@@ -79,7 +79,7 @@ export function AppProvider({ children }: { children: React.ReactNode }): JSX.El
 
   useEffect(() => {
     const outcome = tryValidateEnv();
-    setEnvState({ env: outcome.env, error: outcome.error });
+    setEnvState({ env: outcome.env ?? null, error: outcome.error ?? null});
     if (outcome.error) {
       setLastError(outcome.error.message);
     }

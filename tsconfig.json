@@ -2,27 +2,53 @@
   "compilerOptions": {
     "target": "es2019",
     "module": "esnext",
-    "lib": ["es2019", "dom"],
+    "lib": [
+      "es2019",
+      "dom"
+    ],
     "jsx": "react-jsx",
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "typeRoots": ["./src/types", "./node_modules/@types"],
-    "types": ["vitest/globals", "node"],
+    "typeRoots": [
+      "./src/types",
+      "./node_modules/@types"
+    ],
+    "types": [
+      "node",
+      "vitest/globals"
+    ],
     "baseUrl": "./",
     "paths": {
-      "@app/*": ["src/app/*"],
-      "@lib/*": ["src/lib/*"],
-      "@backend/*": ["src/backend/*"],
-      "@frontend/*": ["src/frontend/*"]
+      "@app/*": [
+        "src/app/*"
+      ],
+      "@lib/*": [
+        "src/lib/*"
+      ],
+      "@backend/*": [
+        "src/backend/*"
+      ],
+      "@frontend/*": [
+        "src/frontend/*"
+      ]
     }
   },
-  "include": ["src", "App.tsx", "vitest.config.ts"],
-  "exclude": ["node_modules", "dist", "build"]
+  "include": [
+    "src",
+    "App.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "vitest.config.ts"
+  ],
+  "extends": "expo/tsconfig.base"
 }

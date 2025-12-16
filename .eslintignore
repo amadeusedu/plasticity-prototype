@@ -1,0 +1,9 @@
+node_modules
+coverage
+dist
+build
+
+# Never lint declarations / generated / mocks
+**/*.d.ts
+src/lib/supabase/database.types.ts
+src/tests/mocks/**

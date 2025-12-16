@@ -1,9 +1,14 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from "vitest/config";
+import path from "path";
 
 export default defineConfig({
   test: {
+    environment: "jsdom",
     globals: true,
-    environment: 'node',
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+  },
+  resolve: {
+    alias: {
+      "react-native": path.resolve(process.cwd(), "src/tests/mocks/react-native.ts"),
+    },
   },
 });

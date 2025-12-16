@@ -1,82 +1,116 @@
-import { z } from 'zod';
+// src/lib/env.ts
+// Future-proof: works in Expo runtime + tests/CI without import.meta.
+// Keeps the existing public API expected by the app/plugins (ValidatedEnv, getValidatedEnv, tryValidateEnv).
 
-type EnvSource = Record<string, string | undefined>;
+type EnvValue = string | undefined | null;
 
-const EnvSchema = z.object({
-  SUPABASE_URL: z.string().url(),
-  SUPABASE_ANON_KEY: z.string().min(20),
-  ENVIRONMENT: z.string().default('development'),
-  FORCE_PREMIUM: z
-    .enum(['true', 'false'])
-    .optional()
-    .transform((value: string | undefined) => value === 'true'),
-});
+function isNonEmptyString(v: EnvValue): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
 
-function readEnv(key: string, sources: EnvSource[]): string | undefined {
-  for (const source of sources) {
-    const value = source[key];
-    if (value !== undefined) return value;
+function pickEnv(...values: EnvValue[]): string | undefined {
+  for (const v of values) {
+    if (isNonEmptyString(v)) return v.trim();
   }
   return undefined;
 }
 
-function mask(value: string, visible = 4): string {
-  if (value.length <= visible) return value;
-  const hiddenLength = Math.max(0, value.length - visible);
-  return `${'*'.repeat(hiddenLength)}${value.slice(-visible)}`;
+function maskSecret(value: string, keepStart = 6, keepEnd = 4): string {
+  if (value.length <= keepStart + keepEnd) return "***";
+  return `${value.slice(0, keepStart)}…${value.slice(-keepEnd)}`;
 }
 
-export interface ValidatedEnv {
+export type EnvironmentName = "development" | "test" | "production";
+
+function normalizeEnvironment(v: string | undefined): EnvironmentName {
+  const raw = (v ?? "").toLowerCase();
+  if (raw === "test") return "test";
+  if (raw === "production" || raw === "prod") return "production";
+  return "development";
+}
+
+export type ValidatedEnv = {
+  // Keep the keys your codebase already expects:
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
-  ENVIRONMENT: string;
+
+  // Plugins expect these:
+  ENVIRONMENT: EnvironmentName;
   FORCE_PREMIUM?: boolean;
+
+  // Dev menu expects masks:
   masks: {
     SUPABASE_URL: string;
     SUPABASE_ANON_KEY: string;
   };
-}
+};
 
-export function getValidatedEnv(): ValidatedEnv {
-  const importMetaEnv =
-    typeof import.meta !== 'undefined' && typeof (import.meta as any).env !== 'undefined'
-      ? ((import.meta as any).env as EnvSource)
-      : {};
+function buildValidatedEnv(): ValidatedEnv {
+  // Expo client-side convention: EXPO_PUBLIC_*
+  const SUPABASE_URL = pickEnv(
+    process.env.EXPO_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_URL
+  );
 
-  const processEnv = typeof process !== 'undefined' ? (process.env as EnvSource) : {};
-  const globalEnv = (globalThis as any)?.__APP_ENV__ as EnvSource | undefined;
+  const SUPABASE_ANON_KEY = pickEnv(
+    process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+    process.env.SUPABASE_ANON_KEY
+  );
 
-  const rawEnv: EnvSource = {
-    SUPABASE_URL:
-      readEnv('VITE_SUPABASE_URL', [importMetaEnv, processEnv, globalEnv ?? {}]) ??
-      readEnv('EXPO_PUBLIC_SUPABASE_URL', [importMetaEnv, processEnv, globalEnv ?? {}]),
-    SUPABASE_ANON_KEY:
-      readEnv('VITE_SUPABASE_ANON_KEY', [importMetaEnv, processEnv, globalEnv ?? {}]) ??
-      readEnv('EXPO_PUBLIC_SUPABASE_ANON_KEY', [importMetaEnv, processEnv, globalEnv ?? {}]),
-    ENVIRONMENT: readEnv('APP_ENV', [processEnv, importMetaEnv, globalEnv ?? {}]) ?? processEnv.NODE_ENV,
-    FORCE_PREMIUM: readEnv('EXPO_PUBLIC_FORCE_PREMIUM', [processEnv, importMetaEnv, globalEnv ?? {}]),
-  };
-
-  const parsed = EnvSchema.safeParse(rawEnv);
-  if (!parsed.success) {
-    const messages = parsed.error.errors.map((err: any) => `${err.path.join('.')}: ${err.message}`).join('\n');
-    throw new Error(`Environment validation failed:\n${messages}`);
+  if (!SUPABASE_URL) {
+    throw new Error(
+      `[env] Missing SUPABASE_URL. Set EXPO_PUBLIC_SUPABASE_URL in .env for Expo, or SUPABASE_URL for tests/CI.`
+    );
   }
 
+  if (!SUPABASE_ANON_KEY) {
+    throw new Error(
+      `[env] Missing SUPABASE_ANON_KEY. Set EXPO_PUBLIC_SUPABASE_ANON_KEY in .env for Expo, or SUPABASE_ANON_KEY for tests/CI.`
+    );
+  }
+
+  // Optional values used by plugins:
+  const ENVIRONMENT = normalizeEnvironment(
+    pickEnv(process.env.EXPO_PUBLIC_ENVIRONMENT, process.env.ENVIRONMENT, process.env.NODE_ENV)
+  );
+
+  const FORCE_PREMIUM_RAW = pickEnv(process.env.EXPO_PUBLIC_FORCE_PREMIUM, process.env.FORCE_PREMIUM);
+  const FORCE_PREMIUM =
+    FORCE_PREMIUM_RAW === undefined
+      ? undefined
+      : FORCE_PREMIUM_RAW.toLowerCase() === "true" || FORCE_PREMIUM_RAW === "1";
+
   return {
-    ...parsed.data,
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY,
+    ENVIRONMENT,
+    FORCE_PREMIUM,
     masks: {
-      SUPABASE_URL: mask(parsed.data.SUPABASE_URL, 12),
-      SUPABASE_ANON_KEY: mask(parsed.data.SUPABASE_ANON_KEY, 6),
+      SUPABASE_URL: maskSecret(SUPABASE_URL),
+      SUPABASE_ANON_KEY: maskSecret(SUPABASE_ANON_KEY),
     },
   };
 }
 
-export function tryValidateEnv(): { env: ValidatedEnv | null; error: Error | null } {
+let _cached: ValidatedEnv | null = null;
+
+export function getValidatedEnv(): ValidatedEnv {
+  if (_cached) return _cached;
+  _cached = buildValidatedEnv();
+  return _cached;
+}
+
+/**
+ * IMPORTANT: AppProvider code expects outcome.env and outcome.error fields to exist.
+ * So we do NOT return a discriminated union here.
+ */
+export function tryValidateEnv(): { env?: ValidatedEnv; error?: Error } {
   try {
-    const env = getValidatedEnv();
-    return { env, error: null };
-  } catch (error) {
-    return { env: null, error: error as Error };
+    return { env: getValidatedEnv(), error: undefined };
+  } catch (e) {
+    return { env: undefined, error: e as Error };
   }
 }
+
+// Back-compat export used in various places
+export const env: ValidatedEnv = getValidatedEnv();

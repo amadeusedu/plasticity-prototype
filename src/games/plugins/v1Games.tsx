@@ -73,7 +73,7 @@ function buildGridTrial(seed: number, difficulty: number, gridSize: number): Gri
   return { gridSize, cells, targetIndex: target };
 }
 
-function renderGridTrial({
+export function renderGridTrial({
   trialData,
   onInput,
   disabled,
@@ -91,7 +91,7 @@ function renderGridTrial({
   );
 }
 
-function scoreGrid({ trialData, input, timeMs }: { trialData: GridHighlightTrial; input: string; timeMs: number }) {
+export function scoreGrid({ trialData, input, timeMs }: { trialData: GridHighlightTrial; input: string; timeMs: number }) {
   const data = trialData;
   const isCorrect = input === data.cells[data.targetIndex]?.id;
   return { accuracy: isCorrect ? 1 : 0, timeMs, errors: isCorrect ? 0 : 1, scoreTotal: isCorrect ? 1500 - timeMs / 6 : 100, extras: {} };
