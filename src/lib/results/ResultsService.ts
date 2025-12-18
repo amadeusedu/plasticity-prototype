@@ -125,6 +125,14 @@ function generateId(): string {
   return `tmp-${Math.random().toString(36).slice(2)}-${Date.now()}`;
 }
 
+const getBrowserWindow = (): (Window & typeof globalThis) | null => {
+  const w = (globalThis as any)?.window;
+  if (!w) return null;
+  if (typeof w.addEventListener !== 'function') return null;
+  if (typeof w.removeEventListener !== 'function') return null;
+  return w as Window & typeof globalThis;
+};
+
 export function formatRlsHint(error: Error): string {
   const message = error.message || 'Unknown Supabase error';
   if (message.toLowerCase().includes('permission') || message.toLowerCase().includes('rls')) {
@@ -155,8 +163,9 @@ export class ResultsService {
 
   constructor(storage?: QueueStorage) {
     this.queue = storage ?? (typeof localStorage === 'undefined' ? new MemoryQueueStorage() : new LocalStorageQueue());
-    if (typeof window !== 'undefined') {
-      window.addEventListener('online', () => this.scheduleFlush(250));
+    const w = getBrowserWindow();
+    if (w) {
+      w.addEventListener('online', () => this.scheduleFlush(250));
     }
     this.scheduleFlush();
   }
