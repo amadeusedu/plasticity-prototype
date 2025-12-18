@@ -60,6 +60,16 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
   const trialStartedAt = useRef<number | null>(null);
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const pauseStartedAt = useRef<number | null>(null);
+  const sessionConfigRef = useRef(sessionConfig);
+  const trialsCountRef = useRef(trialsCount);
+
+  useEffect(() => {
+    sessionConfigRef.current = sessionConfig;
+  }, [sessionConfig]);
+
+  useEffect(() => {
+    trialsCountRef.current = trialsCount;
+  }, [trialsCount]);
 
   const attachAppStateListener = useCallback(() => {
     const handler = (nextState: AppStateStatus) => {
@@ -125,12 +135,6 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
     };
   }, [phase, isPaused, isTimed]);
 
-  useEffect(() => {
-    if (durationLimit && elapsedMs >= durationLimit && phase === 'running') {
-      void finalizeSession();
-    }
-  }, [durationLimit, elapsedMs, phase]);
-
   const startTrial = useCallback(
     (nextIndex: number) => {
       const seed = sessionSeed.current + nextIndex;
@@ -175,12 +179,14 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
       const nextDifficulty = plugin.recommendNextDifficulty(nextScores.slice(-3), difficulty);
       setDifficulty(nextDifficulty);
 
-      const reachedTrialCap = trialsCount ? nextScores.length >= trialsCount : false;
+      const reachedTrialCap = trialsCountRef.current ? nextScores.length >= trialsCountRef.current : false;
       const reachedTimeCap = durationLimit ? elapsedMs >= durationLimit : false;
-      const reachedMaxTrials = sessionConfig.mode === 'timed' && sessionConfig.maxTrials ? nextScores.length >= sessionConfig.maxTrials : false;
+      const reachedMaxTrials = sessionConfigRef.current.mode === 'timed' && sessionConfigRef.current.maxTrials
+        ? nextScores.length >= sessionConfigRef.current.maxTrials
+        : false;
 
       if (reachedTrialCap || reachedTimeCap || reachedMaxTrials) {
-        await finalizeSession(nextScores, nextDifficulty);
+        await finalizeSessionRef.current({ finalScores: nextScores, difficultyEnd: nextDifficulty });
       } else {
         startTrial(nextScores.length);
       }
@@ -188,8 +194,20 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
     [currentTrial, difficulty, durationLimit, elapsedMs, plugin, scores, session, startTrial, trialData]
   );
 
+  const scoresRef = useRef(scores);
+  useEffect(() => {
+    scoresRef.current = scores;
+  }, [scores]);
+
+  const difficultyRef = useRef(difficulty);
+  useEffect(() => {
+    difficultyRef.current = difficulty;
+  }, [difficulty]);
+
   const finalizeSession = useCallback(
-    async (finalScores: StandardScore[] = scores, difficultyEnd = difficulty) => {
+    async (params?: { finalScores?: StandardScore[]; difficultyEnd?: number }) => {
+      const finalScores = params?.finalScores ?? scoresRef.current;
+      const difficultyEnd = params?.difficultyEnd ?? difficultyRef.current;
       if (!session) return;
       const runtimeMs = Math.max(elapsedMs, Date.now() - new Date(session.startedAt).getTime());
       const computedSummary = plugin.buildSessionSummary(finalScores);
@@ -227,8 +245,19 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
       }
       setPhase('summary');
     },
-    [difficulty, elapsedMs, mode, plugin, runContext, scores, session]
+    [elapsedMs, mode, plugin, runContext, session]
   );
+
+  const finalizeSessionRef = useRef(finalizeSession);
+  useEffect(() => {
+    finalizeSessionRef.current = finalizeSession;
+  }, [finalizeSession]);
+
+  useEffect(() => {
+    if (durationLimit && elapsedMs >= durationLimit && phase === 'running') {
+      void finalizeSessionRef.current();
+    }
+  }, [durationLimit, elapsedMs, phase]);
 
   const handlePauseToggle = useCallback(() => {
     setIsPaused((value) => {
@@ -246,8 +275,8 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
   }, []);
 
   const handleExit = useCallback(() => {
-    void finalizeSession();
-  }, [finalizeSession]);
+    void finalizeSessionRef.current();
+  }, []);
 
   const topBar = useMemo(() => {
     const progress = sessionConfig.mode === 'fixed'
