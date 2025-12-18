@@ -3,11 +3,12 @@
  * This helps future contributors avoid breaking partially-built areas.
  */
 export const repoAuditSnapshot = {
-  navigation: 'AppNavigator uses a stack with Home and DEV_MENU (modal) screens.',
+  navigation: 'AppNavigator gates on AuthProvider state; signed-out users see AuthScreen, signed-in users see Home + DEV_MENU (modal) stack.',
   authFlow:
-    'Supabase auth not wired in UI yet; backend helpers assume authenticated user_id is provided when creating sessions.',
+    'AuthProvider wraps the app and wires Supabase email/password auth with AsyncStorage-backed session persistence.',
   supabase: {
-    client: 'src/lib/supabase/client.ts builds a singleton Supabase client using validated env variables.',
+    client:
+      'src/lib/supabase/client.ts builds a singleton Supabase client using validated env variables (camelCase keys) and AsyncStorage auth storage.',
     tables: {
       game_sessions: {
         required: ['id', 'user_id', 'game_id', 'started_at', 'completed'],
