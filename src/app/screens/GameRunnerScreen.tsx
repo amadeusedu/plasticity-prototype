@@ -18,6 +18,7 @@ import { recordAssessmentInsight } from '../../lib/premium/assessmentService';
 import { getDomainForGame } from '../../lib/premium/domainConfig';
 import { canStartSession, recordSessionCompletion } from '../../lib/premium/progressionService';
 import { useAppContext } from '../providers/AppProvider';
+import { useAuth } from '../providers/AuthProvider';
 
 interface SessionState {
   id: string;
@@ -31,6 +32,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'GameRunner'>;
 
 export default function GameRunnerScreen({ route, navigation }: Props): JSX.Element {
   const { entitlements } = useAppContext();
+  const { user } = useAuth();
   const { gameId, mode = 'normal', sessionOverride, runContext } = route.params;
   const plugin = useMemo<AnyGamePlugin>(() => getGamePlugin(gameId), [gameId]);
   const sessionConfig = (sessionOverride as SessionConfig) ?? plugin.session;
@@ -385,10 +387,18 @@ export default function GameRunnerScreen({ route, navigation }: Props): JSX.Elem
 
   const canPause = phase === 'running';
   const canExit = phase === 'running' || phase === 'summary';
+  const showPersistenceWarning = !user || !resultsService.canPersistResults();
 
   return (
     <View style={styles.container}>
       {topBar}
+      {showPersistenceWarning ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerTitle}>Sign in to save progress</Text>
+          <Text style={styles.bannerBody}>You can keep playing offline. Sign in to sync your results.</Text>
+          <PrimaryButton label="Sign in" onPress={() => navigation.navigate('Auth')} />
+        </View>
+      ) : null}
       <ScrollView contentContainerStyle={styles.scroll}>{bodyContent}</ScrollView>
       <View style={styles.footer}>
         {canPause ? (
@@ -416,6 +426,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
     padding: spacing.lg,
+  },
+  banner: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 12,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  bannerTitle: {
+    ...typography.subtitle,
+    color: colors.text,
+  },
+  bannerBody: {
+    ...typography.body,
+    color: colors.textMuted,
   },
   scroll: {
     flexGrow: 1,

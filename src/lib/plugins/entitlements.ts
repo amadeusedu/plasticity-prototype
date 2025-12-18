@@ -16,15 +16,15 @@ export class DefaultEntitlementsProvider implements EntitlementsProvider {
   constructor(private readonly env: ValidatedEnv) {}
 
   async getEntitlements(): Promise<EntitlementsSnapshot> {
-    if (this.env.FORCE_PREMIUM !== undefined) {
+    if (this.env.forcePremium !== undefined) {
       return {
-        isPremium: this.env.FORCE_PREMIUM,
+        isPremium: this.env.forcePremium,
         source: 'env-override',
         reason: 'forced via EXPO_PUBLIC_FORCE_PREMIUM',
       };
     }
 
-    const isDev = this.env.ENVIRONMENT === 'development' || this.env.ENVIRONMENT === 'test';
+    const isDev = this.env.environment === 'development' || this.env.environment === 'test';
     if (isDev) {
       return { isPremium: true, source: 'dev-default', reason: 'dev default' };
     }
@@ -38,7 +38,7 @@ export class DefaultEntitlementsProvider implements EntitlementsProvider {
   }
 
   async paywallTrigger(trigger: { reason: string; metadata?: Record<string, unknown> }): Promise<void> {
-    if (this.env.ENVIRONMENT === 'development') {
+    if (this.env.environment === 'development') {
       console.info('[Entitlements] paywallTrigger (dev only)', trigger);
     }
   }

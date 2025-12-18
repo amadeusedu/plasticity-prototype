@@ -27,7 +27,7 @@ export default function HomeScreen({ navigation, devMenuVisible, onSecretGesture
   const progression = useMemo(() => getProgressionSnapshot(), []);
   const today = useMemo(() => getTodaySummary(), []);
 
-  const environmentLabel = useMemo(() => env?.ENVIRONMENT ?? 'unknown', [env]);
+  const environmentLabel = useMemo(() => env?.environment ?? 'unknown', [env]);
   const premiumLabel = useMemo(() => (entitlements?.isPremium ? 'Premium' : 'Free'), [entitlements]);
 
   return (

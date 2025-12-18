@@ -3,12 +3,12 @@ import { DefaultEntitlementsProvider } from '../entitlements';
 import { ValidatedEnv } from '../../env';
 
 const baseEnv: ValidatedEnv = {
-  SUPABASE_URL: 'https://example.supabase.co',
-  SUPABASE_ANON_KEY: 'anon-key-1234567890',
-  ENVIRONMENT: 'development',
+  supabaseUrl: 'https://example.supabase.co',
+  supabaseAnonKey: 'anon-key-1234567890',
+  environment: 'development',
   masks: {
-    SUPABASE_URL: 'https://example.supabase.co',
-    SUPABASE_ANON_KEY: '*****67890',
+    supabaseUrl: 'https://example.supabase.co',
+    supabaseAnonKey: '*****67890',
   },
 };
 
@@ -21,7 +21,7 @@ describe('DefaultEntitlementsProvider', () => {
   });
 
   it('respects env override', async () => {
-    const provider = new DefaultEntitlementsProvider({ ...baseEnv, FORCE_PREMIUM: false, ENVIRONMENT: 'production' });
+    const provider = new DefaultEntitlementsProvider({ ...baseEnv, forcePremium: false, environment: 'production' });
     const snapshot = await provider.getEntitlements();
     expect(snapshot.isPremium).toBe(false);
     expect(snapshot.source).toBe('env-override');

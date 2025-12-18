@@ -148,6 +148,32 @@ declare module 'uuid' {
 }
 
 declare module '@supabase/supabase-js' {
+  export interface User {
+    id: string;
+    email?: string | null;
+    user_metadata?: Record<string, unknown>;
+    app_metadata?: Record<string, unknown>;
+  }
+
+  export interface Session {
+    access_token: string;
+    refresh_token: string;
+    expires_at?: number | null;
+    user: User;
+  }
+
   export type SupabaseClient<T = any> = any;
   export function createClient<T = any>(...args: any[]): SupabaseClient<T>;
+}
+
+declare module '@react-native-async-storage/async-storage' {
+  interface AsyncStorageStatic {
+    getItem(key: string): Promise<string | null>;
+    setItem(key: string, value: string): Promise<void>;
+    removeItem(key: string): Promise<void>;
+    clear(): Promise<void>;
+  }
+
+  const AsyncStorage: AsyncStorageStatic;
+  export default AsyncStorage;
 }

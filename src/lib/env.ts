@@ -30,64 +30,62 @@ function normalizeEnvironment(v: string | undefined): EnvironmentName {
 }
 
 export type ValidatedEnv = {
-  // Keep the keys your codebase already expects:
-  SUPABASE_URL: string;
-  SUPABASE_ANON_KEY: string;
+  // Keep camelCase keys for app/runtime consumption.
+  supabaseUrl: string;
+  supabaseAnonKey: string;
 
-  // Plugins expect these:
-  ENVIRONMENT: EnvironmentName;
-  FORCE_PREMIUM?: boolean;
+  environment: EnvironmentName;
+  forcePremium?: boolean;
 
-  // Dev menu expects masks:
   masks: {
-    SUPABASE_URL: string;
-    SUPABASE_ANON_KEY: string;
+    supabaseUrl: string;
+    supabaseAnonKey: string;
   };
 };
 
 function buildValidatedEnv(): ValidatedEnv {
   // Expo client-side convention: EXPO_PUBLIC_*
-  const SUPABASE_URL = pickEnv(
+  const supabaseUrl = pickEnv(
     process.env.EXPO_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_URL
   );
 
-  const SUPABASE_ANON_KEY = pickEnv(
+  const supabaseAnonKey = pickEnv(
     process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
     process.env.SUPABASE_ANON_KEY
   );
 
-  if (!SUPABASE_URL) {
+  if (!supabaseUrl) {
     throw new Error(
       `[env] Missing SUPABASE_URL. Set EXPO_PUBLIC_SUPABASE_URL in .env for Expo, or SUPABASE_URL for tests/CI.`
     );
   }
 
-  if (!SUPABASE_ANON_KEY) {
+  if (!supabaseAnonKey) {
     throw new Error(
       `[env] Missing SUPABASE_ANON_KEY. Set EXPO_PUBLIC_SUPABASE_ANON_KEY in .env for Expo, or SUPABASE_ANON_KEY for tests/CI.`
     );
   }
 
   // Optional values used by plugins:
-  const ENVIRONMENT = normalizeEnvironment(
+  const environment = normalizeEnvironment(
     pickEnv(process.env.EXPO_PUBLIC_ENVIRONMENT, process.env.ENVIRONMENT, process.env.NODE_ENV)
   );
 
-  const FORCE_PREMIUM_RAW = pickEnv(process.env.EXPO_PUBLIC_FORCE_PREMIUM, process.env.FORCE_PREMIUM);
-  const FORCE_PREMIUM =
-    FORCE_PREMIUM_RAW === undefined
+  const forcePremiumRaw = pickEnv(process.env.EXPO_PUBLIC_FORCE_PREMIUM, process.env.FORCE_PREMIUM);
+  const forcePremium =
+    forcePremiumRaw === undefined
       ? undefined
-      : FORCE_PREMIUM_RAW.toLowerCase() === "true" || FORCE_PREMIUM_RAW === "1";
+      : forcePremiumRaw.toLowerCase() === "true" || forcePremiumRaw === "1";
 
   return {
-    SUPABASE_URL,
-    SUPABASE_ANON_KEY,
-    ENVIRONMENT,
-    FORCE_PREMIUM,
+    supabaseUrl,
+    supabaseAnonKey,
+    environment,
+    forcePremium,
     masks: {
-      SUPABASE_URL: maskSecret(SUPABASE_URL),
-      SUPABASE_ANON_KEY: maskSecret(SUPABASE_ANON_KEY),
+      supabaseUrl: maskSecret(supabaseUrl),
+      supabaseAnonKey: maskSecret(supabaseAnonKey),
     },
   };
 }

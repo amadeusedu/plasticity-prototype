@@ -1,4 +1,6 @@
-import { getSupabaseClient, getSupabaseUserId } from '../supabase/client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { v4 as uuidv4 } from 'uuid';
+import { getCurrentUser, getSupabaseClient } from '../supabase/client';
 import { GameEventsRow, GameSessionsRow, GameTrialsRow } from '../supabase/types';
 import {
   ResultPayload,
@@ -71,27 +73,29 @@ class MemoryQueueStorage implements QueueStorage {
   }
 }
 
-class LocalStorageQueue implements QueueStorage {
+class AsyncStorageQueue implements QueueStorage {
   private readonly key = 'resultsService.pendingQueue';
 
   async load(): Promise<PendingAction[]> {
-    if (typeof localStorage === 'undefined') return [];
     try {
-      const raw = localStorage.getItem(this.key);
+      const raw = await AsyncStorage.getItem(this.key);
       if (!raw) return [];
       return JSON.parse(raw) as PendingAction[];
     } catch (error) {
-      console.warn('Failed to load pending queue from localStorage', error);
+      console.warn('Failed to load pending queue from AsyncStorage', error);
       return [];
     }
   }
 
   async save(queue: PendingAction[]): Promise<void> {
-    if (typeof localStorage === 'undefined') return;
     try {
-      localStorage.setItem(this.key, JSON.stringify(queue));
+      if (queue.length === 0) {
+        await AsyncStorage.removeItem(this.key);
+        return;
+      }
+      await AsyncStorage.setItem(this.key, JSON.stringify(queue));
     } catch (error) {
-      console.warn('Failed to persist pending queue to localStorage', error);
+      console.warn('Failed to persist pending queue to AsyncStorage', error);
     }
   }
 }
@@ -119,19 +123,17 @@ function withFallbackExtras(existing: GameSessionsRow | null, extras: Record<str
 }
 
 function generateId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
+  try {
+    return uuidv4();
+  } catch {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `tmp-${Math.random().toString(36).slice(2)}-${Date.now()}`;
   }
-  return `tmp-${Math.random().toString(36).slice(2)}-${Date.now()}`;
 }
 
-const getBrowserWindow = (): (Window & typeof globalThis) | null => {
-  const w = (globalThis as any)?.window;
-  if (!w) return null;
-  if (typeof w.addEventListener !== 'function') return null;
-  if (typeof w.removeEventListener !== 'function') return null;
-  return w as Window & typeof globalThis;
-};
+const ANONYMOUS_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 export function formatRlsHint(error: Error): string {
   const message = error.message || 'Unknown Supabase error';
@@ -153,6 +155,10 @@ export class ResultsService {
   private readonly maxBackoffMs = 30_000;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private isFlushing = false;
+  private canPersist = true;
+  private userId: string | null = null;
+  private readonly offlineSessions = new Map<string, GameSessionsRow>();
+  private readonly offlineTrials = new Map<string, TrialResult[]>();
 
   private get client() {
     if (!this.supabase) {
@@ -162,23 +168,48 @@ export class ResultsService {
   }
 
   constructor(storage?: QueueStorage) {
-    this.queue = storage ?? (typeof localStorage === 'undefined' ? new MemoryQueueStorage() : new LocalStorageQueue());
-    const w = getBrowserWindow();
-    if (w) {
-      w.addEventListener('online', () => this.scheduleFlush(250));
-    }
+    this.queue = storage ?? new AsyncStorageQueue();
     this.scheduleFlush();
   }
 
+  private async resolveUserId(): Promise<string | null> {
+    try {
+      const user = await getCurrentUser();
+      this.userId = user?.id ?? null;
+      this.canPersist = Boolean(this.userId);
+      if (this.canPersist) {
+        this.scheduleFlush();
+      }
+      return this.userId;
+    } catch {
+      this.canPersist = false;
+      this.userId = null;
+      return null;
+    }
+  }
+
+  canPersistResults(): boolean {
+    return this.canPersist;
+  }
+
+  private recordOfflineSession(session: GameSessionsRow): void {
+    this.offlineSessions.set(session.id, session);
+  }
+
+  private recordOfflineTrial(sessionId: string, trial: TrialResult): void {
+    const existing = this.offlineTrials.get(sessionId) ?? [];
+    this.offlineTrials.set(sessionId, [...existing, trial]);
+  }
+
   async createSession(params: CreateSessionParams): Promise<{ id: string; startedAt: string; userId: string }> {
-    const userId = await this.requireUserId();
+    const userId = await this.resolveUserId();
     const sessionId = params.sessionId ?? generateId();
     const idempotencyKey = params.idempotencyKey ?? sessionId;
     const startedAt = params.startedAt ?? new Date().toISOString();
 
     const payload: GameSessionsRow & { id: string } = {
       id: sessionId,
-      user_id: userId,
+      user_id: userId ?? ANONYMOUS_USER_ID,
       game_id: params.gameId,
       difficulty_level: params.difficultyStart,
       difficulty_end: null,
@@ -197,6 +228,11 @@ export class ResultsService {
       created_at: null,
     };
 
+    if (!this.canPersist || !userId) {
+      this.recordOfflineSession(payload);
+      return { id: sessionId, startedAt, userId: payload.user_id };
+    }
+
     const insertPromise = this.client
       .from('game_sessions')
       .upsert(payload, { onConflict: 'id' })
@@ -206,6 +242,7 @@ export class ResultsService {
 
     if (error) {
       if (isNetworkLikeError(error)) {
+        this.recordOfflineSession(payload);
         await this.enqueue({ type: 'create', payload: { ...params, idempotencyKey, sessionId, userId, startedAt } });
         return { id: sessionId, startedAt, userId };
       }
@@ -232,11 +269,14 @@ export class ResultsService {
       throw error;
     }
 
+    this.recordOfflineSession({ ...payload, user_id: data.user_id, started_at: data.started_at } as GameSessionsRow);
+    this.userId = data.user_id;
+    this.canPersist = true;
     return { id: data.id as string, startedAt: data.started_at, userId: data.user_id };
   }
 
   async appendTrial(sessionId: string, index: number, trialData: Record<string, unknown>, score: StandardScore): Promise<void> {
-    const userId = await this.requireUserId();
+    const userId = await this.resolveUserId();
     const normalizedScore: StandardScore = { ...score, extras: score.extras ?? {} };
     const trial: TrialResult = { index, trialData, score: normalizedScore };
     const parsed = TrialResultSchema.safeParse(trial);
@@ -253,9 +293,15 @@ export class ResultsService {
       created_at: new Date().toISOString(),
     };
 
+    if (!this.canPersist || !userId) {
+      this.recordOfflineTrial(sessionId, trial);
+      return;
+    }
+
     const attempt = await this.client.from('game_trials').upsert(trialRow, { onConflict: 'session_id,trial_index' });
     if (attempt.error) {
       if (isNetworkLikeError(attempt.error)) {
+        this.recordOfflineTrial(sessionId, trial);
         await this.enqueue({ type: 'trial', payload: { sessionId, userId, trial } });
         return;
       }
@@ -273,7 +319,7 @@ export class ResultsService {
   }
 
   async finalizeSession(params: FinalizeSessionParams): Promise<ResultPayload> {
-    const userId = await this.requireUserId();
+    const userId = await this.resolveUserId();
     const session = await this.fetchSession(params.sessionId);
     if (!session) {
       throw new Error('Session not found for finalizeSession');
@@ -285,7 +331,7 @@ export class ResultsService {
 
     const payload: ResultPayload = {
       sessionId: params.sessionId,
-      userId,
+      userId: userId ?? session.user_id,
       gameId: session.game_id,
       startedAt: session.started_at,
       endedAt,
@@ -299,6 +345,25 @@ export class ResultsService {
     };
 
     ResultPayloadSchema.parse(payload);
+
+    const completedSession: GameSessionsRow = {
+      ...session,
+      difficulty_end: params.difficultyEnd,
+      finished_at: endedAt,
+      duration_ms: durationMs,
+      summary: payload.summary,
+      score: payload.summary.scoreTotal,
+      accuracy: payload.summary.accuracyAvg,
+      completed: true,
+      extra: withFallbackExtras(session, { resultPayload: payload }),
+      app_version: payload.appVersion ?? null,
+      game_version: payload.gameVersion ?? null,
+    };
+
+    if (!this.canPersist || !userId) {
+      this.recordOfflineSession(completedSession);
+      return payload;
+    }
 
     const updatePayload: Partial<GameSessionsRow> = {
       difficulty_end: params.difficultyEnd,
@@ -317,6 +382,7 @@ export class ResultsService {
 
     if (error) {
       if (isNetworkLikeError(error)) {
+        this.recordOfflineSession(completedSession);
         await this.enqueue({ type: 'finalize', payload: { ...params, userId, endedAt, durationMs } });
         return payload;
       }
@@ -346,6 +412,10 @@ export class ResultsService {
       throw error;
     }
 
+    this.recordOfflineSession({
+      ...completedSession,
+    });
+
     return payload;
   }
 
@@ -374,12 +444,20 @@ export class ResultsService {
   }
 
   private async fetchSession(sessionId: string): Promise<GameSessionsRow | null> {
+    const offline = this.offlineSessions.get(sessionId);
+    if (offline) return offline;
+    if (!this.canPersist) return null;
+
     const { data, error } = await this.client.from('game_sessions').select('*').eq('id', sessionId).maybeSingle();
     if (error) throw error;
     return data;
   }
 
   private async fetchTrials(sessionId: string): Promise<TrialResult[]> {
+    const offlineTrials = this.offlineTrials.get(sessionId);
+    if (offlineTrials) return offlineTrials;
+    if (!this.canPersist) return [];
+
     if (this.supportsTrialTable === false) {
       return this.fetchTrialsFromEvents(sessionId);
     }
@@ -408,6 +486,7 @@ export class ResultsService {
   }
 
   private async fetchTrialsFromEvents(sessionId: string): Promise<TrialResult[]> {
+    if (!this.canPersist) return [];
     const { data, error } = await this.client
       .from('game_events')
       .select('event_type, payload')
@@ -433,6 +512,7 @@ export class ResultsService {
   }
 
   private async logTrialAsEvent(sessionId: string, trial: TrialResult): Promise<void> {
+    if (!this.canPersist) return;
     const payload: Partial<GameEventsRow> = {
       session_id: sessionId,
       event_type: 'trial',
@@ -442,22 +522,6 @@ export class ResultsService {
     const { error } = await this.client.from('game_events').insert(payload);
     if (error && !isMissingRelationOrColumn(error)) {
       console.warn('Failed to log trial as event', error);
-    }
-  }
-
-  private async requireUserId(): Promise<string> {
-    try {
-      const userId = await getSupabaseUserId();
-      if (!userId) {
-        throw new Error('Session expired. Please sign in again to continue saving progress.');
-      }
-      return userId;
-    } catch (error) {
-      const message = (error as Error)?.message?.toLowerCase?.() ?? '';
-      if (message.includes('token') || message.includes('auth')) {
-        throw new Error('Session expired. Please sign in again to continue saving progress.');
-      }
-      throw error;
     }
   }
 
@@ -485,6 +549,11 @@ export class ResultsService {
   private async flushPendingQueue(): Promise<boolean> {
     if (this.isFlushing) return false;
     this.isFlushing = true;
+    const activeUserId = await this.resolveUserId();
+    if (!this.canPersist || !activeUserId) {
+      this.isFlushing = false;
+      return false;
+    }
     const queue = await this.queue.load();
     if (!queue.length) {
       this.isFlushing = false;

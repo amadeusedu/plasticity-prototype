@@ -75,9 +75,12 @@ export default function DevMenuScreen({ navigation }: Props): JSX.Element {
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.section}>
         <Text style={styles.title}>Environment</Text>
-        <Text style={styles.value}>SUPABASE_URL: {env?.masks.SUPABASE_URL ?? 'missing'}</Text>
-        <Text style={styles.value}>SUPABASE_ANON_KEY: {env?.masks.SUPABASE_ANON_KEY ?? 'missing'}</Text>
-        <Text style={styles.value}>ENVIRONMENT: {env?.ENVIRONMENT ?? 'unknown'}</Text>
+        <Text style={styles.value}>SUPABASE_URL: {env?.masks.supabaseUrl ?? 'missing'}</Text>
+        <Text style={styles.value}>SUPABASE_ANON_KEY: {env?.masks.supabaseAnonKey ?? 'missing'}</Text>
+        <Text style={styles.value}>ENVIRONMENT: {env?.environment ?? 'unknown'}</Text>
+        <Pressable accessibilityLabel="Open sign in" onPress={() => navigation.navigate('Auth')} style={styles.button}>
+          <Text style={styles.buttonLabel}>Sign in</Text>
+        </Pressable>
         {envError ? <Text style={styles.warning}>Env validation error: {envError.message}</Text> : null}
       </View>
 
